@@ -58,24 +58,24 @@ function App() {
 
   const fetchData = async () => {
     try {
-      const profResponse = await axios.get('http://192.168.0.109:8000/profile')
+      const profResponse = await axios.get('https://liferpg-backend.onrender.com/profile')
       setProfile(profResponse.data.profile)
       setXpToNext(profResponse.data.xp_to_next_level)
 
-      const questResponse = await axios.get('http://192.168.0.109:8000/quests')
+      const questResponse = await axios.get('https://liferpg-backend.onrender.com/quests')
       setQuests(questResponse.data.quests)
 
-      const rewardResponse = await axios.get('http://192.168.0.109:8000/rewards')
+      const rewardResponse = await axios.get('https://liferpg-backend.onrender.com/rewards')
       setRewards(rewardResponse.data.rewards)
 
-      const logsResponse = await axios.get('http://192.168.0.109:8000/logs')
+      const logsResponse = await axios.get('https://liferpg-backend.onrender.com/logs')
       setLogs(logsResponse.data.logs)
     } catch (error) { console.error(error) }
   }
 
   const completeQuest = async (questId) => {
     try {
-      const res = await axios.post('http://192.168.0.109:8000/complete_quest', { quest_id: questId })
+      const res = await axios.post('https://liferpg-backend.onrender.com/complete_quest', { quest_id: questId })
       if (res.data.level_up) {
         playRetroSound('levelup');
         setShowLevelUpModal(true);
@@ -88,7 +88,7 @@ function App() {
 
   const buyReward = async (rewardId) => {
     try {
-      const res = await axios.post('http://192.168.0.109:8000/buy_reward', { reward_id: rewardId })
+      const res = await axios.post('https://liferpg-backend.onrender.com/buy_reward', { reward_id: rewardId })
       if (res.data.status === "success") {
         playRetroSound('coin');
         fetchData();
@@ -98,7 +98,7 @@ function App() {
 
   const handleAddQuest = async (e) => {
     e.preventDefault(); if (!newTitle) return;
-    await axios.post('http://192.168.0.109:8000/add_quest', {
+    await axios.post('https://liferpg-backend.onrender.com/add_quest', {
       title: newTitle, description: newDesc, xp: Number(newXp), gold: Number(newGold), category: newCategory || '✨ Разное'
     });
     setNewTitle(''); setNewDesc(''); setNewCategory('');
@@ -107,13 +107,13 @@ function App() {
 
   const handleAddReward = async (e) => {
     e.preventDefault(); if (!newRewardTitle) return;
-    await axios.post('http://192.168.0.109:8000/add_reward', { title: newRewardTitle, cost: Number(newRewardCost) });
+    await axios.post('https://liferpg-backend.onrender.com/add_reward', { title: newRewardTitle, cost: Number(newRewardCost) });
     setNewRewardTitle('');
     fetchData(); setActiveTab('shop');
   }
 
-  const handleDeleteQuest = async (id) => { await axios.delete(`http://192.168.0.109:8000/delete_quest/${id}`); fetchData(); }
-  const handleDeleteReward = async (id) => { await axios.delete(`http://192.168.0.109:8000/delete_reward/${id}`); fetchData(); }
+  const handleDeleteQuest = async (id) => { await axios.delete(`https://liferpg-backend.onrender.com/delete_quest/${id}`); fetchData(); }
+  const handleDeleteReward = async (id) => { await axios.delete(`https://liferpg-backend.onrender.com/delete_reward/${id}`); fetchData(); }
 
   useEffect(() => { fetchData() }, [])
 
