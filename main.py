@@ -1,13 +1,15 @@
-from fastapi import FastAPI
+import os
+from datetime import datetime
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import json
-import os
-import datetime
 from pymongo import MongoClient
+from bson.objectid import ObjectId
 
-app = FastAPI(title="LifeRPG API v3.5")
+# Инициализация приложения
+app = FastAPI(title="LifeRPG Backend v4.0")
 
+# Настройка CORS для беспрепятственной связи с фронтендом
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -16,211 +18,184 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ (MONGO ИЛИ JSON) ---
+# ==========================================
+# 1. ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ MONGODB
+# ==========================================
 MONGO_URI = os.getenv("MONGO_URI")
-use_mongo = False
 
-if MONGO_URI:
-    try:
-        # Подключаемся к удаленному кластеру
-        client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-        client.server_info() # Проверка связи
-        mongo_db = client["liferpg_cloud"]
-        db_collection = mongo_db["game_data"]
-        use_mongo = True
-        print("🚀 Успешно подключено к вечной базе данных MongoDB Atlas!")
-    except Exception as e:
-        print("⚠️ Не удалось связаться с MongoDB, включен аварийный JSON-режим:", e)
+if not MONGO_URI:
+    print("⚠️ ВНИМАНИЕ: Переменная MONGO_URI не найдена. Проверьте настройки Render!")
 
-DB_FILE = "database.json"
-
-def load_db():
-    if use_mongo:
-        data = db_collection.find_one({"_id": "main_player_data"})
-        if data:
-            return data
-    else:
-        if os.path.exists(DB_FILE):
-            with open(DB_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+try:
+    client = MongoClient(MONGO_URI)
+    db = client["liferpg_cloud"]
     
-    # Базовая матрица, если базы пусты
-    default_db = {
-        "_id": "main_player_data", # Нужно для MongoDB
-        "player": {"name": "Creator", "level": 1, "current_xp": 0, "gold": 0, "streak": 0, "last_reset": ""},
-        "quests": [
-            {"id": 1, "category": "🎬 Личный Бренд", "title": "Дебют", "description": "Смонтировать 1-е видео", "xp": 20, "gold": 20, "completed": False},
-            {"id": 99, "category": "🔥 Дейлики", "title": "Ежедневная активность", "description": "Выполнить норму шагов", "xp": 5, "gold": 5, "completed": False}
-        ],
-        "rewards": [
-            {"id": 1, "title": "Посмотреть серию любимого сериала", "cost": 30},
-            {"id": 2, "title": "Вкусный читмил / Заказать пиццу", "cost": 150}
-        ],
-        "logs": [{"text": "[Система] Ядро v3.5 запущено. Матрица стабильна."}]
-    }
-    save_db(default_db)
-    return default_db
-
-def save_db(db_data):
-    if use_mongo:
-        db_collection.replace_one({"_id": "main_player_data"}, db_data, upsert=True)
-    else:
-        with open(DB_FILE, "w", encoding="utf-8") as f:
-            json.dump(db_data, f, ensure_ascii=False, indent=4)
-
-# --- СИСТЕМА ИГРОВЫХ РАНГОВ ---
-def get_rank(level: int) -> str:
-    if level < 3: return "⚔️ Новичок"
-    elif level < 7: return "🔮 Искатель"
-    elif level < 12: return "🔱 Мастер Матрицы"
-    elif level < 20: return "🌌 Повелитель Судьбы"
-    return "👑 Легенда Реальности"
-
-# --- ЛОГИКА КАЛЕНДАРНОГО СБРОСА ДЕЙЛИКОВ ---
-def update_daily_calendar(db):
-    today = datetime.date.today().isoformat()
-    last_reset = db["player"].get("last_reset", "")
+    # Инициализация коллекций
+    profile_collection = db["game_data"]  # Статистика профиля
+    quests_collection = db["quests"]      # Активные задачи
+    history_collection = db["history"]    # Летопись для графиков (НОВОЕ)
     
-    if last_reset != today:
-        time_str = datetime.datetime.now().strftime("%H:%M")
-        
-        # Проверяем, не пропущен ли вчерашний день для стрика
-        if last_reset:
-            yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
-            if last_reset != yesterday and db["player"]["streak"] > 0:
-                db["player"]["streak"] = 0
-                db["logs"].insert(0, {"text": f"[{time_str}] ❄️ Серия дней прервана. Стрик обнулен."})
-        
-        # Сбрасываем бесконечный дейлик
-        for quest in db["quests"]:
-            if quest["id"] == 99:
-                quest["completed"] = False
-        
-        db["player"]["last_reset"] = today
-        save_db(db)
+    print("🚀 Успешно подключено к вечной базе данных MongoDB Atlas!")
+except Exception as e:
+    print(f"⚠️ Ошибка подключения к базе: {e}")
 
-# --- МОДЕЛИ ДАННЫХ ---
-class QuestCompleteRequest(BaseModel):
-    quest_id: int
 
-class QuestAddRequest(BaseModel):
+# ==========================================
+# 2. PYDANTIC МОДЕЛИ (Схемы данных)
+# ==========================================
+class QuestBase(BaseModel):
+    title: str
+    category: str = "Разное"
+    xp: int = 10
+    gold: int = 10
+
+class HistoryEntry(BaseModel):
+    action_type: str
     category: str
     title: str
-    description: str
-    xp: int
-    gold: int
+    xp_gained: int
+    gold_earned: int
+    timestamp: datetime
 
-class RewardAddRequest(BaseModel):
-    title: str
-    cost: int
 
-class RewardBuyRequest(BaseModel):
-    reward_id: int
+# ==========================================
+# 3. ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# ==========================================
+def get_or_create_profile():
+    """Ищет профиль в базе. Если его нет — создает стартовый шаблон."""
+    profile = profile_collection.find_one({"_id": "main_profile"})
+    if not profile:
+        profile = {
+            "_id": "main_profile",
+            "level": 1,
+            "current_xp": 0,
+            "gold": 0,
+            "rank": "⚔️ Новичок",
+            "streak": 0
+        }
+        profile_collection.insert_one(profile)
+    return profile
 
-# --- ЭНДПОИНТЫ ---
+
+# ==========================================
+# 4. ОСНОВНЫЕ ЭНДПОИНТЫ API
+# ==========================================
+
 @app.get("/profile")
 def get_profile():
-    db = load_db()
-    update_daily_calendar(db)
-    xp_to_next = db["player"]["level"] * 100
-    rank = get_rank(db["player"]["level"])
-    return {"profile": db["player"], "xp_to_next_level": xp_to_next, "rank": rank}
+    """Отдает статистику профиля на фронтенд"""
+    return get_or_create_profile()
 
 @app.get("/quests")
 def get_quests():
-    db = load_db()
-    return {"quests": db["quests"]}
+    """Отдает список всех невыполненных квестов"""
+    quests = []
+    for q in quests_collection.find({"completed": {"$ne": True}}):
+        q["_id"] = str(q["_id"])  # MongoDB использует ObjectId, переводим в строку
+        quests.append(q)
+    return quests
 
-@app.get("/rewards")
-def get_rewards():
-    db = load_db()
-    return {"rewards": db.get("rewards", [])}
+@app.post("/quests")
+def create_quest(quest: QuestBase):
+    """Создает новый квест (Кузница)"""
+    new_quest = quest.dict()
+    new_quest["completed"] = False
+    result = quests_collection.insert_one(new_quest)
+    new_quest["_id"] = str(result.inserted_id)
+    return new_quest
 
-@app.get("/logs")
-def get_logs():
-    db = load_db()
-    return {"logs": db.get("logs", [])}
-
-@app.post("/complete_quest")
-def complete_quest(req: QuestCompleteRequest):
-    db = load_db()
-    time_str = datetime.datetime.now().strftime("%H:%M")
+@app.post("/quests/{quest_id}/complete")
+def complete_quest(quest_id: str):
+    """Боевой эндпоинт: Зачет квеста, начисление наград и запись в историю"""
     
-    for quest in db["quests"]:
-        if quest["id"] == req.quest_id:
-            if quest["completed"] and quest["id"] != 99:
-                return {"status": "error", "message": "Квест уже выполнен"}
-            
-            # Если это дейлик, который уже был выполнен сегодня, повторно стрик не качаем
-            if quest["id"] == 99 and quest["completed"] == False:
-                db["player"]["streak"] += 1
-                if db["player"]["streak"] % 3 == 0:
-                    db["player"]["current_xp"] += 15
-                    db["logs"].insert(0, {"text": f"[{time_str}] 🔥 СТРИК БОНУС! Серия {db['player']['streak']} дн. (+15 XP!)"})
-            
-            quest["completed"] = True
-            db["player"]["current_xp"] += quest["xp"]
-            db["player"]["gold"] += quest["gold"]
-            
-            # Обновление статистики по категориям
-            if "stats" not in db["player"]: db["player"]["stats"] = {}
-            cat = quest["category"]
-            db["player"]["stats"][cat] = db["player"]["stats"].get(cat, 0) + quest["xp"]
-            
-            db["logs"].insert(0, {"text": f"[{time_str}] Сдано: {quest['title']} (+{quest['xp']}XP, +{quest['gold']}💰)"})
-            
-            level_up = False
-            xp_to_next = db["player"]["level"] * 100
-            if db["player"]["current_xp"] >= xp_to_next:
-                db["player"]["level"] += 1
-                db["player"]["current_xp"] -= xp_to_next
-                level_up = True
-            
-            save_db(db)
-            return {"status": "success", "level_up": level_up}
-    return {"status": "error", "message": "Квест не найден"}
+    # Шаг 1: Ищем квест в базе
+    quest = quests_collection.find_one({"_id": ObjectId(quest_id)})
+    if not quest:
+        raise HTTPException(status_code=404, detail="Квест не найден")
+    if quest.get("completed"):
+        raise HTTPException(status_code=400, detail="Квест уже выполнен")
 
-@app.post("/add_quest")
-def add_quest(req: QuestAddRequest):
-    db = load_db()
-    new_id = max([q["id"] for q in db["quests"]], default=0) + 1
-    db["quests"].append({
-        "id": new_id, "category": req.category, "title": req.title,
-        "description": req.description, "xp": req.xp, "gold": req.gold, "completed": False
-    })
-    save_db(db)
-    return {"status": "success"}
+    # Шаг 2: Закрываем квест
+    quests_collection.update_one({"_id": ObjectId(quest_id)}, {"$set": {"completed": True}})
 
-@app.delete("/delete_quest/{quest_id}")
-def delete_quest(quest_id: int):
-    db = load_db()
-    db["quests"] = [q for q in db["quests"] if q["id"] != quest_id]
-    save_db(db)
-    return {"status": "success"}
+    # Шаг 3: Начисляем Опыт и Золото в профиль
+    profile = get_or_create_profile()
+    new_xp = profile["current_xp"] + quest.get("xp", 0)
+    new_gold = profile["gold"] + quest.get("gold", 0)
+    
+    # Простая система уровней (каждые 100 XP = level up)
+    level_up = False
+    new_level = profile["level"]
+    xp_needed = new_level * 100
+    
+    if new_xp >= xp_needed:
+        new_level += 1
+        new_xp -= xp_needed
+        level_up = True
 
-@app.post("/add_reward")
-def add_reward(req: RewardAddRequest):
-    db = load_db()
-    new_id = max([r["id"] for r in db.get("rewards", [])], default=0) + 1
-    db["rewards"].append({"id": new_id, "title": req.title, "cost": req.cost})
-    save_db(db)
-    return {"status": "success"}
+    profile_collection.update_one(
+        {"_id": "main_profile"},
+        {"$set": {
+            "level": new_level,
+            "current_xp": new_xp,
+            "gold": new_gold
+        }}
+    )
 
-@app.delete("/delete_reward/{reward_id}")
-def delete_reward(reward_id: int):
-    db = load_db()
-    db["rewards"] = [r for r in db.get("rewards", []) if r["id"] != reward_id]
-    save_db(db)
-    return {"status": "success"}
+    # Шаг 4: ЛЕТОПИСЬ (Сохраняем шаг для круговой аналитики)
+    history_entry = {
+        "action_type": "quest_completed",
+        "category": quest.get("category", "Разное"),
+        "title": quest.get("title", "Неизвестный квест"),
+        "xp_gained": quest.get("xp", 0),
+        "gold_earned": quest.get("gold", 0),
+        "timestamp": datetime.utcnow()
+    }
+    history_collection.insert_one(history_entry)
 
-@app.post("/buy_reward")
-def buy_reward(req: RewardBuyRequest):
-    db = load_db()
-    time_str = datetime.datetime.now().strftime("%H:%M")
-    for r in db.get("rewards", []):
-        if r["id"] == req.reward_id and db["player"]["gold"] >= r["cost"]:
-            db["player"]["gold"] -= r["cost"]
-            db["logs"].insert(0, {"text": f"[{time_str}] Магазин: {r['title']} (-{r['cost']}💰)"})
-            save_db(db)
-            return {"status": "success"}
-    return {"status": "error", "message": "Не хватает золота"}
+    return {
+        "status": "success",
+        "level_up": level_up,
+        "new_level": new_level,
+        "current_xp": new_xp,
+        "gold": new_gold,
+        "message": f"Получено {quest.get('xp')} XP и {quest.get('gold')} Золота!"
+    }
+
+
+# ==========================================
+# 5. АНАЛИТИКА (Для графиков на фронтенде)
+# ==========================================
+
+@app.get("/analytics/categories")
+def get_category_stats():
+    """Агрегирует данные из Летописи и выдает готовую статистику для Chart.js"""
+    
+    # Инструкция для базы: найти выполненные квесты и сгруппировать их по категориям
+    pipeline = [
+        {"$match": {"action_type": "quest_completed"}},
+        {"$group": {
+            "_id": "$category", 
+            "count": {"$sum": 1},
+            "total_xp": {"$sum": "$xp_gained"}
+        }}
+    ]
+    
+    db_results = list(history_collection.aggregate(pipeline))
+    
+    # Форматируем массивы ровно так, как любит библиотека графиков
+    labels = []
+    quest_counts = []
+    xp_distribution = []
+    
+    for row in db_results:
+        category_name = row["_id"] if row["_id"] else "Разное"
+        labels.append(category_name)
+        quest_counts.append(row["count"])
+        xp_distribution.append(row["total_xp"])
+        
+    return {
+        "labels": labels,                       # ['Дейлики', 'Личный Бренд', 'Гараж']
+        "quest_counts": quest_counts,           # [15, 5, 2] (Количество задач)
+        "xp_distribution": xp_distribution      # [150, 200, 80] (Сколько опыта принесла сфера)
+    }
