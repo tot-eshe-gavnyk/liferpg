@@ -6,10 +6,11 @@ from pydantic import BaseModel
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 
-# Инициализация FastAPI
-app = FastAPI(title="LifeRPG Core Engine v4.5")
+# ==========================================
+# 1. ИНИЦИАЛИЗАЦИЯ ЯДРА И CORS
+# ==========================================
+app = FastAPI(title="LifeRPG Core Engine v6.0 - The Cultivation Matrix")
 
-# Настройка CORS для беспрепятственной связи с React-фронтендом
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,7 +20,7 @@ app.add_middleware(
 )
 
 # ==========================================
-# ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ MONGODB ATLAS
+# 2. ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ MONGODB ATLAS
 # ==========================================
 MONGO_URI = os.getenv("MONGO_URI")
 
@@ -27,20 +28,20 @@ try:
     client = MongoClient(MONGO_URI)
     db = client["liferpg_cloud"]
     
-    # Объявляем коллекции
+    # Коллекции матрицы
     profile_collection = db["game_data"]
     quests_collection = db["quests"]
     rewards_collection = db["rewards"]
     logs_collection = db["logs"]
-    history_collection = db["history"] # Наша летопись для круглого графика
+    history_collection = db["history"] # Для круглого графика
     
-    print("🚀 Успешно подключено к вечной базе данных MongoDB Atlas!")
+    print("🚀 Успешно подключено к кластеру MongoDB Atlas!")
 except Exception as e:
     print(f"⚠️ Критическая ошибка подключения к кластеру: {e}")
 
 
 # ==========================================
-# PYDANTIC МОДЕЛИ (Точное совпадение с React)
+# 3. PYDANTIC МОДЕЛИ (Схемы данных)
 # ==========================================
 class QuestCreateInput(BaseModel):
     title: str
@@ -48,6 +49,8 @@ class QuestCreateInput(BaseModel):
     xp: int = 15
     gold: int = 15
     category: str = "✨ Разное"
+    requires_id: str = ""  # ID квеста для цепочки (блокировки)
+    is_daily: bool = False # Флаг для ежедневных заданий
 
 class CompleteQuestInput(BaseModel):
     quest_id: str
@@ -61,8 +64,15 @@ class BuyRewardInput(BaseModel):
 
 
 # ==========================================
-# ВСПОМОГАТЕЛЬНАЯ ЛОГИКА ПРОФИЛЯ
+# 4. ЛОГИКА ПРОФИЛЯ И РАНГОВ
 # ==========================================
+def get_rank_by_level(level: int) -> str:
+    if level >= 20: return "🌌 Архитектор Матрицы"
+    if level >= 15: return "👑 Легенда"
+    if level >= 10: return "🦅 Магистр"
+    if level >= 5:  return "🛡️ Рыцарь"
+    return "⚔️ Новичок"
+
 def get_or_create_profile():
     profile = profile_collection.find_one({"_id": "main_profile"})
     if not profile:
@@ -74,15 +84,25 @@ def get_or_create_profile():
             "gold": 0,
             "rank": "⚔️ Новичок",
             "streak": 0,
-            "stats": {} # Здесь будут храниться прокачанные навыки по сферам
+            "stats": {} # Сохранение опыта по категориям (Путям)
         }
         profile_collection.insert_one(profile)
+    
+    # Авто-апдейт ранга на случай сбоев
+    expected_rank = get_rank_by_level(profile.get("level", 1))
+    if profile.get("rank") != expected_rank:
+        profile_collection.update_one({"_id": "main_profile"}, {"$set": {"rank": expected_rank}})
+        profile["rank"] = expected_rank
+
     return profile
 
 
 # ==========================================
-# СИНХРОНИЗИРОВАННЫЕ ЭНДПОИНТЫ API
+# 5. ЭНДПОИНТЫ: ПРОФИЛЬ И СТАТИСТИКА
 # ==========================================
+@app.get("/")
+def health_check():
+    return {"status": "LifeRPG Engine is online and ready."}
 
 @app.get("/profile")
 def get_profile():
@@ -94,11 +114,42 @@ def get_profile():
         "rank": profile.get("rank", "⚔️ Новичок")
     }
 
+@app.get("/analytics/categories")
+def get_category_stats():
+    # Агрегация данных для круглого графика
+    pipeline = [
+        {"$match": {"action_type": "quest_completed"}},
+        {"$group": {
+            "_id": "$category", 
+            "count": {"$sum": 1},
+            "total_xp": {"$sum": "$xp_gained"}
+        }}
+    ]
+    
+    db_results = list(history_collection.aggregate(pipeline))
+    labels = []
+    xp_distribution = []
+    
+    for row in db_results:
+        category_name = row["_id"] if row["_id"] else "✨ Разное"
+        labels.append(category_name)
+        xp_distribution.append(row["total_xp"])
+        
+    return {
+        "labels": labels,
+        "xp_distribution": xp_distribution
+    }
+
+
+# ==========================================
+# 6. ЭНДПОИНТЫ: КВЕСТЫ И ЦЕПОЧКИ
+# ==========================================
 @app.get("/quests")
 def get_quests():
     active_quests = []
-    for q in quests_collection.find({"completed": {"$ne": True}}):
-        q["id"] = str(q["_id"]) # Конвертируем ObjectId в строку для React key={quest.id}
+    # Отдаем ВСЕ квесты, чтобы React мог строить связи для заблокированных
+    for q in quests_collection.find():
+        q["id"] = str(q["_id"])
         del q["_id"]
         active_quests.append(q)
     return {"quests": active_quests}
@@ -111,9 +162,11 @@ def add_quest(quest: QuestCreateInput):
     new_quest["id"] = str(result.inserted_id)
     del new_quest["_id"]
     
-    # Закидываем событие в ленту
+    tag = "[🔄 Дейлик] " if quest.is_daily else ""
+    lock_tag = "[🔒 Цепочка] " if quest.requires_id else ""
+    
     logs_collection.insert_one({
-        "text": f"🔨 Выкован новый квест: {quest.title}",
+        "text": f"🔨 Выкован квест: {tag}{lock_tag}{quest.title}",
         "timestamp": datetime.utcnow()
     })
     return new_quest
@@ -131,7 +184,7 @@ def complete_quest(data: CompleteQuestInput):
     if quest.get("completed"):
         return {"status": "already_completed", "level_up": False}
 
-    # Помечаем квест выполненным
+    # Помечаем квест как выполненный
     quests_collection.update_one({"_id": obj_id}, {"$set": {"completed": True}})
 
     profile = get_or_create_profile()
@@ -139,29 +192,25 @@ def complete_quest(data: CompleteQuestInput):
     xp_gain = quest.get("xp", 15)
     gold_gain = quest.get("gold", 15)
 
-    # 📊 АПГРЕЙД СФЕР ЖИЗНИ (Те самые прогресс-бары на главном экране)
+    # Прокачка навыков (Stats)
     stats = profile.get("stats", {})
     stats[category] = stats.get(category, 0) + xp_gain
 
-    # Расчет нового уровня
     new_xp = profile["current_xp"] + xp_gain
     new_gold = profile["gold"] + gold_gain
     new_level = profile["level"]
     level_up = False
 
+    # Логика Level Up
     xp_needed = new_level * 100
     if new_xp >= xp_needed:
         new_level += 1
         new_xp -= xp_needed
         level_up = True
         
-        # Динамический расчет рангов в зависимости от уровня
-        if new_level >= 15: profile["rank"] = "👑 Легенда"
-        elif new_level >= 10: profile["rank"] = "🦅 Магистр"
-        elif new_level >= 5: profile["rank"] = "🛡️ Рыцарь"
-        else: profile["rank"] = "⚔️ Новичок"
+    new_rank = get_rank_by_level(new_level)
 
-    # Сохраняем обновленного персонажа в базу
+    # Обновление профиля
     profile_collection.update_one(
         {"_id": "main_profile"},
         {"$set": {
@@ -169,11 +218,11 @@ def complete_quest(data: CompleteQuestInput):
             "current_xp": new_xp,
             "gold": new_gold,
             "stats": stats,
-            "rank": profile.get("rank", "⚔️ Новичок")
+            "rank": new_rank
         }}
     )
 
-    # 📈 ЗАПИСЬ В ЛЕТОПИСЬ (Для генерации круглого графика)
+    # Запись в летопись (Графики)
     history_collection.insert_one({
         "action_type": "quest_completed",
         "category": category,
@@ -183,7 +232,7 @@ def complete_quest(data: CompleteQuestInput):
         "timestamp": datetime.utcnow()
     })
 
-    # 📜 ЗАПИСЬ В ЛЕНТУ СОБЫТИЙ (Оживляем лог-журнал на фронтенде)
+    # Запись в ленту
     logs_collection.insert_one({
         "text": f"✓ Выполнен квест: {quest['title']} (+{xp_gain} XP, +{gold_gain} 💰)",
         "timestamp": datetime.utcnow()
@@ -191,12 +240,21 @@ def complete_quest(data: CompleteQuestInput):
     
     if level_up:
         logs_collection.insert_one({
-            "text": f"🚀 ЛЕВЕЛ АП! Вы достигли {new_level} уровня. Код матрицы переписан!",
+            "text": f"🚀 ЛЕВЕЛ АП! Достигнут {new_level} уровень. Текущий ранг: {new_rank}",
             "timestamp": datetime.utcnow()
         })
 
     return {"status": "success", "level_up": level_up}
 
+@app.delete("/delete_quest/{id}")
+def delete_quest(id: str):
+    quests_collection.delete_one({"_id": ObjectId(id)})
+    return {"status": "success"}
+
+
+# ==========================================
+# 7. ЭНДПОИНТЫ: МАГАЗИН И НАГРАДЫ
+# ==========================================
 @app.get("/rewards")
 def get_rewards():
     all_rewards = []
@@ -223,19 +281,17 @@ def buy_reward(data: BuyRewardInput):
         
     reward = rewards_collection.find_one({"_id": obj_id})
     if not reward:
-        raise HTTPException(status_code=404, detail="Товар распродан или не найден")
+        raise HTTPException(status_code=404, detail="Товар не найден")
 
     profile = get_or_create_profile()
     if profile["gold"] < reward["cost"]:
-        raise HTTPException(status_code=400, detail="Недостаточно золота для транзакции")
+        raise HTTPException(status_code=400, detail="Недостаточно золота")
 
-    # Списываем золото
     profile_collection.update_one(
         {"_id": "main_profile"},
         {"$inc": {"gold": -reward["cost"]}}
     )
 
-    # Фиксируем покупку в логах и истории
     history_collection.insert_one({
         "action_type": "reward_bought",
         "category": "🛒 Магазин Наград",
@@ -252,22 +308,6 @@ def buy_reward(data: BuyRewardInput):
 
     return {"status": "success"}
 
-@app.get("/logs")
-def get_logs():
-    latest_logs = []
-    # Берем последние 30 событий и сортируем их по дате (от свежих к старым)
-    for l in logs_collection.find().sort("timestamp", -1).limit(30):
-        l["id"] = str(l["_id"])
-        del l["_id"]
-        if "timestamp" in l: del l["timestamp"]
-        latest_logs.append(l)
-    return {"logs": latest_logs}
-
-@app.delete("/delete_quest/{id}")
-def delete_quest(id: str):
-    quests_collection.delete_one({"_id": ObjectId(id)})
-    return {"status": "success"}
-
 @app.delete("/delete_reward/{id}")
 def delete_reward(id: str):
     rewards_collection.delete_one({"_id": ObjectId(id)})
@@ -275,32 +315,14 @@ def delete_reward(id: str):
 
 
 # ==========================================
-# ПОДГОТОВКА ДАННЫХ ДЛЯ КРУГЛОГО ГРАФИКА
+# 8. ЭНДПОИНТЫ: ЛОГИ
 # ==========================================
-@app.get("/analytics/categories")
-def get_category_stats():
-    pipeline = [
-        {"$match": {"action_type": "quest_completed"}},
-        {"$group": {
-            "_id": "$category", 
-            "count": {"$sum": 1},
-            "total_xp": {"$sum": "$xp_gained"}
-        }}
-    ]
-    
-    db_results = list(history_collection.aggregate(pipeline))
-    labels = []
-    quest_counts = []
-    xp_distribution = []
-    
-    for row in db_results:
-        category_name = row["_id"] if row["_id"] else "✨ Разное"
-        labels.append(category_name)
-        quest_counts.append(row["count"])
-        xp_distribution.append(row["total_xp"])
-        
-    return {
-        "labels": labels,
-        "quest_counts": quest_counts,
-        "xp_distribution": xp_distribution
-    }
+@app.get("/logs")
+def get_logs():
+    latest_logs = []
+    for l in logs_collection.find().sort("timestamp", -1).limit(35):
+        l["id"] = str(l["_id"])
+        del l["_id"]
+        if "timestamp" in l: del l["timestamp"]
+        latest_logs.append(l)
+    return {"logs": latest_logs}
