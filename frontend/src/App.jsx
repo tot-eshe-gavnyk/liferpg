@@ -1,4 +1,4 @@
-import { useState, useEffect, biographies } from 'react'
+import { useState, useEffect } from 'react'
 import axios from 'axios'
 
 function App() {
@@ -65,12 +65,12 @@ function App() {
       const profData = profResponse.data.profile ? profResponse.data.profile : profResponse.data
       setProfile(profData)
       
-      // Авторасчет необходимого опыта на основе уровня бэкенда v4.0
+      // Авторасчет необходимого опыта на основе уровня бэкенда v4.5
       const nextXp = profResponse.data.xp_to_next_level ? profResponse.data.xp_to_next_level : (profData.level * 100)
       setXpToNext(nextXp)
       setRank(profData.rank || '⚔️ Новичок')
 
-      // Синхронизация квестов с поддержкой прямого списочного ответа v4.0
+      // Синхронизация квестов
       const questResponse = await axios.get('https://liferpg-backend.onrender.com/quests')
       const activeQuests = Array.isArray(questResponse.data) ? questResponse.data : (questResponse.data.quests || [])
       setQuests(activeQuests)
@@ -79,7 +79,7 @@ function App() {
       try {
         const rewardResponse = await axios.get('https://liferpg-backend.onrender.com/rewards')
         setRewards(rewardResponse.data.rewards || rewardResponse.data || [])
-      } catch(e) { console.log("Эндпоинт магазина пока настраивается") }
+      } catch(e) { console.log("Эндпоинт магазина пока пуст") }
 
       // Логи ленты
       try {
@@ -98,8 +98,7 @@ function App() {
 
   const completeQuest = async (questId) => {
     try {
-      // Поддержка роутинга v4.0 (параметр в пути)
-      const res = await axios.post(`https://liferpg-backend.onrender.com/quests/${questId}/complete`)
+      const res = await axios.post('https://liferpg-backend.onrender.com/complete_quest', { quest_id: questId })
       if (res.data.level_up) {
         playRetroSound('levelup');
         setShowLevelUpModal(true);
@@ -108,12 +107,7 @@ function App() {
       }
       fetchData();
     } catch (error) { 
-      // Резервный вызов для старого роута, если бэкенд не обновился
-      try {
-        const res = await axios.post('https://liferpg-backend.onrender.com/complete_quest', { quest_id: questId })
-        if (res.data.level_up) { playRetroSound('levelup'); setShowLevelUpModal(true); } else { playRetroSound('click'); }
-        fetchData();
-      } catch(e) { console.error("Ошибка закрытия квеста:", e) }
+      console.error("Ошибка закрытия квеста:", error)
     }
   }
 
@@ -129,9 +123,8 @@ function App() {
 
   const handleAddQuest = async (e) => {
     e.preventDefault(); if (!newTitle) return;
-    // Унифицированный эндпоинт v4.0
-    await axios.post('https://liferpg-backend.onrender.com/quests', {
-      title: newTitle, category: newCategory || '✨ Разное', xp: Number(newXp), gold: Number(newGold)
+    await axios.post('https://liferpg-backend.onrender.com/add_quest', {
+      title: newTitle, description: newDesc, xp: Number(newXp), gold: Number(newGold), category: newCategory || '✨ Разное'
     });
     setNewTitle(''); setNewDesc(''); setNewCategory('');
     fetchData(); setActiveTab('play');
@@ -157,7 +150,7 @@ function App() {
 
       const ctx = chartCanvas.getContext('2d');
       
-      // Если экземпляр графика уже существует глобально — сносим его перед перерисовкой
+      // Сносим прошлый график перед перерисовкой, чтобы избежать накладывания
       if (window.currentLiferpgChart) {
         window.currentLiferpgChart.destroy();
       }
@@ -170,7 +163,7 @@ function App() {
             label: 'Заработано XP',
             data: chartData.xp_distribution,
             backgroundColor: [
-              '#00E5FF', // Неоновый бирюзовый (Твой фирменный кастом)
+              '#00E5FF', // Неоновый бирюзовый (Твой фирменный цвет приборки)
               '#AF52DE', // Фиолетовый
               '#FF3B30', // Красный
               '#FFCC00', // Желтый
@@ -178,7 +171,7 @@ function App() {
               '#FF9500'  // Оранжевый
             ],
             borderWidth: 3,
-            borderColor: '#06070a', // Совпадает с фоном body
+            borderColor: '#06070a', // Цвет фона приложения
             hoverOffset: 8
           }]
         },
@@ -205,7 +198,7 @@ function App() {
       });
     }
 
-    // Чистим память при закрытии вкладки аналитики
+    // Чистим память при закрытии вкладки
     return () => {
       if (window.currentLiferpgChart) {
         window.currentLiferpgChart.destroy();
@@ -235,7 +228,7 @@ function App() {
         </div>
       )}
 
-      {/* ТАБ-НАВИГАЦИЯ С ЧЕТЫРЬМЯ ВКЛАДКАМИ */}
+      {/* ТАБ-НАВИГАЦИЯ (4 ВКЛАДКИ) */}
       <div className="w-full max-w-md bg-gray-900/90 p-1 rounded-xl border border-gray-800 flex gap-1 mb-6 backdrop-blur-md sticky top-4 z-40 shadow-2xl">
         <button onClick={() => setActiveTab('play')} className={`flex-1 py-2 rounded-lg text-[9px] font-black tracking-widest ${activeTab === 'play' ? 'bg-cyan-600 text-white shadow-md' : 'text-gray-400'}`}>⚔️ КВЕСТЫ</button>
         <button onClick={() => setActiveTab('shop')} className={`flex-1 py-2 rounded-lg text-[9px] font-black tracking-widest ${activeTab === 'shop' ? 'bg-amber-600 text-white shadow-md' : 'text-gray-400'}`}>💰 МАГАЗИН</button>
@@ -291,7 +284,7 @@ function App() {
                 <h2 className="text-[10px] font-black text-gray-500 tracking-widest uppercase px-1">{category}</h2>
                 <div className="space-y-2">
                   {quests.filter(q => q.category === category).map((quest) => {
-                    const qId = quest._id || quest.id;
+                    const qId = quest.id || quest._id;
                     return (
                       <div key={qId} className={`p-4 rounded-xl flex justify-between items-center border transition-all ${quest.completed ? 'bg-gray-900/30 border-gray-950 opacity-30' : 'bg-gray-900 border-gray-800 hover:border-gray-700'}`}>
                         <div className="pr-4">
@@ -378,7 +371,7 @@ function App() {
               <h4 className="text-[9px] font-black text-red-400 tracking-wider uppercase mb-2">Удаление квестов</h4>
               <div className="max-h-36 overflow-y-auto space-y-1">
                 {quests.map(q => {
-                  const qId = q._id || q.id;
+                  const qId = q.id || q._id;
                   return (
                     <div key={qId} className="flex justify-between items-center text-xs py-1 border-b border-gray-800/40"><span className="truncate text-gray-400 pr-2">{q.title}</span><button onClick={() => handleDeleteQuest(qId)} className="text-[9px] font-bold text-red-500 bg-red-500/10 px-1.5 py-0.5 rounded">✕</button></div>
                   );
@@ -397,7 +390,7 @@ function App() {
         </div>
       )}
 
-      {/* --- ТВОЯ НОВАЯ ВКЛАДКА 4: АНАЛИТИКА КРУГЛЫХ ГРАФИКОВ --- */}
+      {/* --- ВКЛАДКА 4: АНАЛИТИКА КРУГЛЫХ ГРАФИКОВ --- */}
       {activeTab === 'analytics' && (
         <div className="w-full max-w-md space-y-6">
           <div className="bg-gray-900 rounded-2xl p-5 border border-gray-800/80 shadow-2xl flex flex-col items-center">
@@ -407,7 +400,6 @@ function App() {
             </div>
             
             {chartData && chartData.labels && chartData.labels.length > 0 ? (
-              // Обертка с фиксированной высотой для стабильной работы холста Chart.js
               <div className="relative w-full h-64 mt-2">
                 <canvas id="analyticsChart"></canvas>
               </div>
