@@ -73,7 +73,7 @@ def get_or_create_profile():
             "current_xp": 0,
             "gold": 0,
             "rank": "⚔️ Новичок",
-            "streak": 3,
+            "streak": 0,
             "stats": {} # Здесь будут храниться прокачанные навыки по сферам
         }
         profile_collection.insert_one(profile)
