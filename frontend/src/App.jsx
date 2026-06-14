@@ -8,6 +8,7 @@ function App() {
   const [xpToNext, setXpToNext] = useState(100)
   const [quests, setQuests] = useState([])
   const [rewards, setRewards] = useState([])
+  const [bosses, setBosses] = useState([]) // НОВОЕ: Состояние для Боссов
   const [logs, setLogs] = useState([])
   const [chartData, setChartData] = useState(null)
   const [dbCategories, setDbCategories] = useState([])
@@ -29,31 +30,16 @@ function App() {
   const [newRewardCost, setNewRewardCost] = useState(30)
   const [newCategoryInput, setNewCategoryInput] = useState('')
 
-  const checkAndResetDailies = async (currentQuests) => {
-    const today = new Date().toDateString();
-    const lastReset = localStorage.getItem('matrixDailyReset');
-    
-    if (lastReset !== today) {
-      const completedDailies = currentQuests.filter(q => 
-        q.completed && (q.is_daily || q.title.toLowerCase().includes('дейлик'))
-      );
-      
-      if (completedDailies.length > 0) {
-        for (const quest of completedDailies) {
-          await axios.delete(`${API_URL}/delete_quest/${quest.id}`);
-          await axios.post(`${API_URL}/add_quest`, {
-            title: quest.title, description: quest.description || "",
-            xp: Number(quest.xp), gold: Number(quest.gold),
-            category: quest.category || "✨ Разное", requires_id: quest.requires_id || "", is_daily: true
-          });
-        }
-        localStorage.setItem('matrixDailyReset', today);
-        fetchData();
-      } else {
-        localStorage.setItem('matrixDailyReset', today);
-      }
-    }
-  };
+  // Создание босса (для Кузницы)
+  const [newBossTitle, setNewBossTitle] = useState('')
+  const [newBossHp, setNewBossHp] = useState(1000)
+
+  // Синхронизация нового дня (проверка на урон)
+  const triggerDailySync = async () => {
+    try {
+      await axios.post(`${API_URL}/sync_new_day`);
+    } catch (e) { console.error("Sync error:", e) }
+  }
 
   const playRetroSound = (type) => {
     try {
@@ -81,18 +67,25 @@ function App() {
 
   const fetchData = async () => {
     try {
-      const [profRes, questRes, catRes, rewRes, logsRes, chartRes] = await Promise.allSettled([
+      await triggerDailySync(); // Проверяем урон при каждом входе
+
+      const [profRes, questRes, catRes, rewRes, logsRes, chartRes, bossRes] = await Promise.allSettled([
         axios.get(`${API_URL}/profile`),
         axios.get(`${API_URL}/quests`),
         axios.get(`${API_URL}/categories`),
         axios.get(`${API_URL}/rewards`),
         axios.get(`${API_URL}/logs`),
-        axios.get(`${API_URL}/analytics/categories`)
+        axios.get(`${API_URL}/analytics/categories`),
+        axios.get(`${API_URL}/bosses`) // Подтягиваем боссов
       ]);
 
       if (profRes.status === 'fulfilled') {
         const pData = profRes.value.data.profile || profRes.value.data;
-        setProfile({ ...pData, category_levels: profRes.value.data.category_levels });
+        setProfile({ 
+          ...pData, 
+          category_levels: profRes.value.data.category_levels,
+          current_multiplier: profRes.value.data.current_multiplier
+        });
         setXpToNext(profRes.value.data.xp_to_next_level || pData.level * 100);
         setRank(pData.rank || '⚔️ Новичок');
       }
@@ -103,15 +96,11 @@ function App() {
         if (!newCategory && loadedCats.length > 0) setNewCategory(loadedCats[0].name);
       }
 
-      if (questRes.status === 'fulfilled') {
-        const qData = questRes.value.data.quests || [];
-        setQuests(qData);
-        checkAndResetDailies(qData);
-      }
-
+      if (questRes.status === 'fulfilled') setQuests(questRes.value.data.quests || []);
       if (rewRes.status === 'fulfilled') setRewards(rewRes.value.data.rewards || []);
       if (logsRes.status === 'fulfilled') setLogs(logsRes.value.data.logs || []);
       if (chartRes.status === 'fulfilled') setChartData(chartRes.value.data);
+      if (bossRes.status === 'fulfilled') setBosses(bossRes.value.data.bosses || []);
 
     } catch (error) { console.error("Sync error:", error) }
   }
@@ -129,6 +118,9 @@ function App() {
       const currentCatLevel = profile?.category_levels?.[quest.category]?.level || 1;
       setNewCatLevelData({ name: quest.category, level: currentCatLevel + 1 });
       setShowCatLevelUpModal(true);
+    } else if (res.data.boss_defeated) {
+      playRetroSound('levelup');
+      alert("🎉 МИРОВОЙ БОСС ПОВЕРЖЕН! Награда получена!");
     } else {
       playRetroSound('click');
     }
@@ -138,6 +130,12 @@ function App() {
   const buyReward = async (id) => {
     const res = await axios.post(`${API_URL}/buy_reward`, { reward_id: id });
     if (res.data.status === "success") { playRetroSound('coin'); fetchData(); }
+  }
+
+  // НОВОЕ: Использование предмета из инвентаря
+  const useInventoryItem = async (title) => {
+    const res = await axios.post(`${API_URL}/use_item`, { item_title: title });
+    if (res.data.status === "success") { playRetroSound('click'); fetchData(); }
   }
 
   const handleAddQuest = async (e) => {
@@ -161,6 +159,15 @@ function App() {
     e.preventDefault(); if (!newCategoryInput) return;
     await axios.post(`${API_URL}/add_category`, { name: newCategoryInput });
     setNewCategoryInput(''); fetchData();
+  }
+
+  const handleAddBoss = async (e) => {
+    e.preventDefault(); if (!newBossTitle) return;
+    await axios.post(`${API_URL}/add_boss`, { 
+      title: newBossTitle, max_hp: Number(newBossHp), 
+      xp_reward: Number(newBossHp) * 2, gold_reward: Number(newBossHp) 
+    });
+    setNewBossTitle(''); fetchData(); setActiveTab('boss');
   }
 
   const handleDeleteQuest = async (id) => { await axios.delete(`${API_URL}/delete_quest/${id}`); fetchData(); }
@@ -198,6 +205,7 @@ function App() {
   )
 
   const progressPercent = Math.min((profile.current_xp / xpToNext) * 100, 100)
+  const hpPercent = Math.min((profile.hp / profile.max_hp) * 100, 100)
   
   const getSortedQuests = (catName) => {
     return quests.filter(q => (q.category || '✨ Разное') === catName).sort((a, b) => {
@@ -208,16 +216,17 @@ function App() {
   };
 
   const activeQuestCategories = [...new Set(quests.map(q => q.category || '✨ Разное'))];
+  const activeBoss = bosses.find(b => !b.is_defeated);
 
   return (
     <div className="relative min-h-screen bg-[#040914] text-slate-200 flex flex-col items-center py-8 px-4 font-sans pb-28 overflow-x-hidden selection:bg-teal-500/30">
       
-      {/* МЯГКИЕ ФОНОВЫЕ СВЕЧЕНИЯ (GLASSMORPHISM BLOBS) */}
+      {/* МЯГКИЕ ФОНОВЫЕ СВЕЧЕНИЯ */}
       <div className="fixed top-[-10%] left-[-15%] w-[60vw] h-[60vw] rounded-full bg-teal-600/10 blur-[120px] pointer-events-none mix-blend-screen"></div>
       <div className="fixed bottom-[-10%] right-[-15%] w-[60vw] h-[60vw] rounded-full bg-purple-600/10 blur-[120px] pointer-events-none mix-blend-screen"></div>
       <div className="fixed top-[40%] right-[-10%] w-[40vw] h-[40vw] rounded-full bg-amber-600/5 blur-[100px] pointer-events-none mix-blend-screen"></div>
 
-      {/* МОДАЛКА GLOBAL LEVEL UP */}
+      {/* МОДАЛКИ (Оставили без изменений) */}
       {showLevelUpModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-50 p-4 transition-all duration-500">
           <div className="bg-white/10 border border-white/20 rounded-[2rem] p-10 max-w-sm w-full text-center shadow-[0_0_80px_rgba(45,212,191,0.2)] backdrop-blur-2xl">
@@ -229,7 +238,6 @@ function App() {
         </div>
       )}
 
-      {/* МОДАЛКА CATEGORY LEVEL UP */}
       {showCatLevelUpModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-50 p-4 transition-all duration-500">
           <div className="bg-white/10 border border-white/20 rounded-[2rem] p-10 max-w-sm w-full text-center shadow-[0_0_80px_rgba(167,139,250,0.2)] backdrop-blur-2xl">
@@ -241,48 +249,65 @@ function App() {
         </div>
       )}
 
-      {/* НАВИГАЦИЯ GLASSMORPHISM */}
+      {/* НАВИГАЦИЯ (Обновлена с новой вкладкой) */}
       <div className="w-full max-w-md bg-white/5 p-1.5 rounded-2xl border border-white/10 flex gap-1 mb-8 backdrop-blur-2xl sticky top-4 z-40 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
-        <button onClick={() => setActiveTab('play')} className={`flex-1 py-3 rounded-xl text-xs font-medium tracking-wide transition-all duration-300 ${activeTab === 'play' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>Квесты</button>
-        <button onClick={() => setActiveTab('shop')} className={`flex-1 py-3 rounded-xl text-xs font-medium tracking-wide transition-all duration-300 ${activeTab === 'shop' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>Магазин</button>
-        <button onClick={() => setActiveTab('forge')} className={`flex-1 py-3 rounded-xl text-xs font-medium tracking-wide transition-all duration-300 ${activeTab === 'forge' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>Кузница</button>
-        <button onClick={() => setActiveTab('analytics')} className={`flex-1 py-3 rounded-xl text-xs font-medium tracking-wide transition-all duration-300 ${activeTab === 'analytics' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>Аналитика</button>
+        <button onClick={() => setActiveTab('play')} className={`flex-1 py-3 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'play' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>Квесты</button>
+        <button onClick={() => setActiveTab('boss')} className={`flex-1 py-3 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'boss' ? 'bg-rose-500/20 text-rose-300 shadow-lg border border-rose-500/30' : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>Боссы</button>
+        <button onClick={() => setActiveTab('shop')} className={`flex-1 py-3 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'shop' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>Магазин</button>
+        <button onClick={() => setActiveTab('forge')} className={`flex-1 py-3 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'forge' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>Кузница</button>
       </div>
 
-      {/* === ВКЛАДКА 1: PLAY === */}
+      {/* === ВКЛАДКА 1: PLAY (КВЕСТЫ) === */}
       {activeTab === 'play' && (
         <div className="w-full max-w-md space-y-8 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
           
-          {/* ПРОФИЛЬ КАРТОЧКА СТЕКЛО */}
+          {/* ПРОФИЛЬ КАРТОЧКА С HP И СТРИКОМ */}
           <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] relative overflow-hidden group">
             <div className="absolute -right-10 -top-10 w-40 h-40 bg-teal-500/20 rounded-full blur-3xl group-hover:bg-teal-400/30 transition-all duration-1000"></div>
-            <div className="flex justify-between items-start relative z-10">
+            <div className="flex justify-between items-start relative z-10 mb-5">
               <div className="flex-1">
-                <h1 className="text-3xl font-light text-white tracking-tight mb-1">{profile.name}</h1>
-                <p className="text-xs text-teal-400 font-medium tracking-widest uppercase mb-6">{rank} • {profile.level} УРОВЕНЬ</p>
-                <div className="mb-2 flex justify-between text-[10px] text-slate-400 font-medium tracking-widest uppercase">
-                  <span>Прогресс</span>
-                  <span>{profile.current_xp} / {xpToNext}</span>
+                <div className="flex items-center gap-3 mb-1">
+                  <h1 className="text-3xl font-light text-white tracking-tight">{profile.name}</h1>
+                  {profile.streak > 0 && <span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-lg text-[10px] font-bold tracking-widest">🔥 x{profile.current_multiplier?.toFixed(2)}</span>}
                 </div>
-                <div className="w-full bg-black/40 rounded-full h-1.5 border border-white/5 overflow-hidden">
-                  <div className="bg-gradient-to-r from-teal-500 to-emerald-300 h-full rounded-full transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(45,212,191,0.5)]" style={{ width: `${progressPercent}%` }}></div>
-                </div>
+                <p className="text-xs text-teal-400 font-medium tracking-widest uppercase">{rank} • {profile.level} УРОВЕНЬ</p>
               </div>
-              <div className="ml-5 bg-black/20 border border-white/10 rounded-2xl px-5 py-4 text-center backdrop-blur-md shadow-inner flex flex-col items-center justify-center min-w-[80px]">
+              <div className="ml-5 bg-black/20 border border-white/10 rounded-2xl px-5 py-4 text-center backdrop-blur-md shadow-inner min-w-[80px]">
                 <span className="block text-[9px] font-semibold text-slate-400 tracking-widest mb-1.5 uppercase">Золото</span>
                 <span className="text-2xl font-light text-amber-300 drop-shadow-[0_0_8px_rgba(252,211,77,0.4)]">{profile.gold}</span>
               </div>
             </div>
+
+            {/* ШКАЛЫ ПРОГРЕССА */}
+            <div className="space-y-4">
+              <div>
+                <div className="mb-1.5 flex justify-between text-[10px] text-slate-400 font-medium tracking-widest uppercase">
+                  <span>Опыт</span>
+                  <span>{profile.current_xp} / {xpToNext}</span>
+                </div>
+                <div className="w-full bg-black/40 rounded-full h-1.5 border border-white/5 overflow-hidden">
+                  <div className="bg-gradient-to-r from-teal-500 to-emerald-300 h-full rounded-full transition-all duration-1000 shadow-[0_0_10px_rgba(45,212,191,0.5)]" style={{ width: `${progressPercent}%` }}></div>
+                </div>
+              </div>
+
+              <div>
+                <div className="mb-1.5 flex justify-between text-[10px] text-slate-400 font-medium tracking-widest uppercase">
+                  <span>Здоровье (HP)</span>
+                  <span className={profile.hp < 50 ? 'text-rose-400' : ''}>{profile.hp} / {profile.max_hp}</span>
+                </div>
+                <div className="w-full bg-black/40 rounded-full h-1.5 border border-white/5 overflow-hidden">
+                  <div className="bg-gradient-to-r from-rose-600 to-rose-400 h-full rounded-full transition-all duration-1000 shadow-[0_0_10px_rgba(225,29,72,0.5)]" style={{ width: `${hpPercent}%` }}></div>
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* СПИСОК ПУТЕЙ */}
+          {/* СПИСОК КВЕСТОВ */}
           <div className="space-y-8">
             {activeQuestCategories.map(category => {
               const catData = profile.category_levels?.[category] || { level: 1, percent: 0, is_maxed: false };
-              
               return (
                 <div key={category} className="space-y-4">
-                  {/* Заголовок Категории */}
                   <div className="flex items-end justify-between px-2">
                     <div>
                       <h2 className="text-base font-medium text-white tracking-wide">{category}</h2>
@@ -298,7 +323,6 @@ function App() {
                     )}
                   </div>
 
-                  {/* Карточки Квестов */}
                   <div className="space-y-3">
                     {getSortedQuests(category).map((quest) => {
                       const parentQuest = quest.requires_id ? quests.find(q => q.id === quest.requires_id) : null;
@@ -333,29 +357,87 @@ function App() {
                 </div>
               );
             })}
-            {quests.length === 0 && <div className="text-center text-slate-500 text-xs py-20 font-light tracking-widest uppercase">Нет активных задач</div>}
           </div>
         </div>
       )}
 
-      {/* === ВКЛАДКА 2: МАГАЗИН === */}
-      {activeTab === 'shop' && (
+      {/* === ВКЛАДКА 1.5: БОССЫ === */}
+      {activeTab === 'boss' && (
         <div className="w-full max-w-md space-y-6 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
+          {activeBoss ? (
+            <div className="bg-rose-950/40 backdrop-blur-xl border border-rose-500/30 rounded-[2rem] p-8 text-center shadow-[0_8px_32px_0_rgba(225,29,72,0.2)] relative overflow-hidden">
+              <div className="absolute -left-10 -top-10 w-40 h-40 bg-rose-600/20 rounded-full blur-3xl"></div>
+              <div className="relative z-10">
+                <div className="text-6xl mb-4 drop-shadow-[0_0_15px_rgba(225,29,72,0.5)]">🐉</div>
+                <h2 className="text-2xl font-light text-white tracking-wide mb-2">{activeBoss.title}</h2>
+                <p className="text-[10px] text-rose-300/80 uppercase tracking-widest mb-6">Текущая Глобальная Угроза</p>
+                
+                <div className="mb-2 flex justify-between text-[10px] text-rose-200 font-medium tracking-widest uppercase">
+                  <span>Здоровье Босса</span>
+                  <span>{activeBoss.current_hp} / {activeBoss.max_hp}</span>
+                </div>
+                <div className="w-full bg-black/50 rounded-full h-3 border border-rose-500/20 overflow-hidden mb-6">
+                  <div className="bg-gradient-to-r from-rose-600 to-orange-500 h-full rounded-full transition-all duration-1000 shadow-[0_0_10px_rgba(225,29,72,0.5)]" style={{ width: `${(activeBoss.current_hp / activeBoss.max_hp) * 100}%` }}></div>
+                </div>
+
+                <div className="flex justify-center gap-4 text-xs font-medium">
+                  <span className="bg-black/30 border border-white/10 px-4 py-2 rounded-xl text-teal-300">Награда: +{activeBoss.xp_reward} XP</span>
+                  <span className="bg-black/30 border border-white/10 px-4 py-2 rounded-xl text-amber-300">Награда: +{activeBoss.gold_reward} 💰</span>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-6 font-light">Выполняйте квесты, чтобы наносить урон боссу.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-[2rem] p-10 text-center shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
+              <div className="text-5xl mb-4 opacity-50">🕊️</div>
+              <h2 className="text-xl font-light text-slate-300 mb-2">Мир в безопасности</h2>
+              <p className="text-xs text-slate-500">В данный момент активных глобальных угроз нет. Можете призвать босса в Кузнице.</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* === ВКЛАДКА 2: МАГАЗИН И ИНВЕНТАРЬ === */}
+      {activeTab === 'shop' && (
+        <div className="w-full max-w-md space-y-8 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
+          
           <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-[2rem] p-10 text-center shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
             <p className="text-[10px] text-amber-300/60 font-medium mb-3 uppercase tracking-[0.2em]">Доступные средства</p>
             <h2 className="text-5xl font-light text-amber-300 drop-shadow-[0_0_15px_rgba(252,211,77,0.3)]">{profile.gold}</h2>
           </div>
-          <div className="space-y-3">
-            {rewards.map(reward => (
-              <div key={reward.id} className="p-5 bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl flex justify-between items-center hover:bg-white/10 transition-all duration-300 shadow-[0_4px_16px_0_rgba(0,0,0,0.1)]">
-                <div>
-                  <h3 className="font-light text-base text-slate-100 tracking-wide">{reward.title}</h3>
-                  <p className="text-xs text-amber-300/80 font-medium mt-1.5 tracking-wide">{reward.cost} G</p>
+
+          {/* ИНВЕНТАРЬ (РЮКЗАК) */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-medium text-white px-2 tracking-wide">🎒 Мой Рюкзак</h3>
+            <div className="grid grid-cols-2 gap-3">
+              {Object.entries(profile.inventory || {}).map(([itemTitle, count]) => (
+                <div key={itemTitle} className="bg-purple-900/10 backdrop-blur-md border border-purple-500/20 p-4 rounded-2xl flex flex-col items-center text-center">
+                  <span className="text-xs font-medium text-purple-200 mb-1">{itemTitle}</span>
+                  <span className="text-[10px] text-purple-400/80 mb-3">В наличии: {count} шт.</span>
+                  <button onClick={() => useInventoryItem(itemTitle)} className="bg-purple-500/20 hover:bg-purple-500/40 border border-purple-500/30 text-purple-100 text-[10px] py-1.5 px-4 rounded-xl transition-colors">Активировать</button>
                 </div>
-                <button onClick={() => buyReward(reward.id)} disabled={profile.gold < reward.cost} className={`px-6 py-3 rounded-xl text-[10px] font-medium tracking-widest uppercase transition-all duration-300 ${profile.gold >= reward.cost ? 'bg-amber-400 text-amber-950 hover:bg-amber-300 shadow-[0_0_15px_rgba(251,191,36,0.4)]' : 'bg-black/30 text-slate-600 border border-white/5'}`}>Приобрести</button>
-              </div>
-            ))}
-            {rewards.length === 0 && <div className="text-center text-slate-500 text-xs py-20 font-light tracking-widest uppercase">Витрина пуста</div>}
+              ))}
+              {Object.keys(profile.inventory || {}).length === 0 && (
+                <div className="col-span-2 text-center text-slate-600 text-xs py-6 font-light uppercase tracking-widest border border-dashed border-white/10 rounded-2xl">Рюкзак пуст</div>
+              )}
+            </div>
+          </div>
+
+          {/* ВИТРИНА МАГАЗИНА */}
+          <div className="space-y-4">
+            <h3 className="text-sm font-medium text-white px-2 tracking-wide">🛒 Витрина Наград</h3>
+            <div className="space-y-3">
+              {rewards.map(reward => (
+                <div key={reward.id} className="p-5 bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl flex justify-between items-center hover:bg-white/10 transition-all duration-300">
+                  <div>
+                    <h3 className="font-light text-base text-slate-100 tracking-wide">{reward.title}</h3>
+                    <p className="text-xs text-amber-300/80 font-medium mt-1.5 tracking-wide">{reward.cost} G</p>
+                  </div>
+                  <button onClick={() => buyReward(reward.id)} disabled={profile.gold < reward.cost} className={`px-6 py-3 rounded-xl text-[10px] font-medium tracking-widest uppercase transition-all duration-300 ${profile.gold >= reward.cost ? 'bg-amber-400 text-amber-950 hover:bg-amber-300 shadow-[0_0_15px_rgba(251,191,36,0.4)]' : 'bg-black/30 text-slate-600 border border-white/5'}`}>Купить</button>
+                </div>
+              ))}
+              {rewards.length === 0 && <div className="text-center text-slate-600 text-xs py-10 font-light uppercase tracking-widest">Ничего не продается</div>}
+            </div>
           </div>
         </div>
       )}
@@ -364,51 +446,49 @@ function App() {
       {activeTab === 'forge' && (
         <div className="w-full max-w-md space-y-6 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
           
-          {/* СОЗДАНИЕ КВЕСТА */}
-          <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
+          <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10">
             <h3 className="text-sm font-light text-white mb-6 tracking-wide">Новая инициатива</h3>
             <form onSubmit={handleAddQuest}>
               <div className="space-y-4 mb-6">
-                <input type="text" placeholder="Название..." required value={newTitle} onChange={(e) => setNewTitle(e.target.value)} className="w-full bg-black/20 text-slate-200 rounded-xl px-5 py-4 border border-white/10 text-sm focus:border-white/30 focus:bg-black/40 outline-none transition-all placeholder:text-slate-600 font-light" />
-                <textarea placeholder="Детали или шаги (опционально)" value={newDesc} onChange={(e) => setNewDesc(e.target.value)} className="w-full bg-black/20 text-slate-300 rounded-xl px-5 py-4 border border-white/10 text-xs min-h-[90px] focus:border-white/30 focus:bg-black/40 outline-none transition-all resize-none placeholder:text-slate-600 font-light leading-relaxed" />
+                <input type="text" placeholder="Название..." required value={newTitle} onChange={(e) => setNewTitle(e.target.value)} className="w-full bg-black/20 text-slate-200 rounded-xl px-5 py-4 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
+                <textarea placeholder="Детали или шаги (опционально)" value={newDesc} onChange={(e) => setNewDesc(e.target.value)} className="w-full bg-black/20 text-slate-300 rounded-xl px-5 py-4 border border-white/10 text-xs min-h-[90px] focus:border-white/30 outline-none font-light" />
               </div>
-              
               <div className="grid grid-cols-2 gap-4 mb-5">
                 <div className="col-span-2">
-                  <label className="block text-[10px] text-slate-500 mb-2 ml-1 uppercase tracking-widest">Категория</label>
                   <select value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="w-full bg-black/20 text-slate-300 rounded-xl px-4 py-3.5 border border-white/10 text-sm focus:border-white/30 outline-none appearance-none font-light">
                     {dbCategories.map(c => <option key={c.id} value={c.name} className="bg-slate-900">{c.name}</option>)}
                     {dbCategories.length === 0 && <option value="✨ Разное" className="bg-slate-900">✨ Разное</option>}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-[10px] text-slate-500 mb-2 ml-1 uppercase tracking-widest">Опыт (XP)</label>
-                  <input type="number" required min="1" value={newXp} onChange={(e) => setNewXp(e.target.value)} className="w-full bg-black/20 text-teal-300 rounded-xl px-4 py-3.5 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
-                </div>
-                <div>
-                  <label className="block text-[10px] text-slate-500 mb-2 ml-1 uppercase tracking-widest">Золото</label>
-                  <input type="number" required min="1" value={newGold} onChange={(e) => setNewGold(e.target.value)} className="w-full bg-black/20 text-amber-300 rounded-xl px-4 py-3.5 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
-                </div>
+                <input type="number" placeholder="XP" required min="1" value={newXp} onChange={(e) => setNewXp(e.target.value)} className="w-full bg-black/20 text-teal-300 rounded-xl px-4 py-3.5 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
+                <input type="number" placeholder="Gold" required min="1" value={newGold} onChange={(e) => setNewGold(e.target.value)} className="w-full bg-black/20 text-amber-300 rounded-xl px-4 py-3.5 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
               </div>
-
               <div className="mb-6">
-                <label className="block text-[10px] text-slate-500 mb-2 ml-1 uppercase tracking-widest">Цепочка (Блокировка)</label>
                 <select value={newRequiresId} onChange={(e) => setNewRequiresId(e.target.value)} className="w-full bg-black/20 text-slate-400 rounded-xl px-4 py-3.5 border border-white/10 text-xs focus:border-white/30 outline-none appearance-none font-light">
                   <option value="" className="bg-slate-900">Без зависимости</option>
                   {quests.map(q => <option key={q.id} value={q.id} className="bg-slate-900">Ждать: {q.title}</option>)}
                 </select>
               </div>
-
-              <label className="flex items-center gap-3 mb-8 p-4 rounded-xl bg-black/20 border border-white/5 cursor-pointer hover:bg-black/30 transition-colors">
-                <input type="checkbox" checked={newIsDaily} onChange={(e) => setNewIsDaily(e.target.checked)} className="w-4 h-4 rounded border-white/20 bg-black/50 text-teal-500 focus:ring-0 focus:ring-offset-0" />
-                <span className="text-xs text-slate-300 font-light tracking-wide">Ежедневный респаун (Дейлик)</span>
+              <label className="flex items-center gap-3 mb-8 p-4 rounded-xl bg-black/20 border border-white/5 cursor-pointer">
+                <input type="checkbox" checked={newIsDaily} onChange={(e) => setNewIsDaily(e.target.checked)} className="w-4 h-4 rounded border-white/20 bg-black/50 text-teal-500" />
+                <span className="text-xs text-slate-300 font-light">Ежедневный респаун</span>
               </label>
-
-              <button type="submit" className="w-full bg-white/10 hover:bg-white text-white hover:text-black border border-white/20 text-xs font-medium tracking-widest uppercase py-4 rounded-xl transition-all duration-300 shadow-lg backdrop-blur-sm">Создать</button>
+              <button type="submit" className="w-full bg-white/10 hover:bg-white text-white hover:text-black border border-white/20 text-xs font-medium uppercase py-4 rounded-xl transition-all">Создать</button>
             </form>
           </div>
 
-          <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
+          <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10">
+            <h3 className="text-sm font-light text-rose-300 mb-5 tracking-wide">Призыв Босса</h3>
+            <form onSubmit={handleAddBoss} className="flex flex-col gap-3">
+              <input type="text" placeholder="Имя глобальной угрозы..." required value={newBossTitle} onChange={(e) => setNewBossTitle(e.target.value)} className="w-full bg-black/20 text-slate-200 rounded-xl px-5 py-3.5 border border-white/10 text-xs outline-none font-light" />
+              <div className="flex gap-3">
+                 <input type="number" placeholder="Здоровье (HP)" required min="100" value={newBossHp} onChange={(e) => setNewBossHp(e.target.value)} className="w-1/2 bg-black/20 text-rose-300 rounded-xl px-4 py-3.5 border border-white/10 text-xs text-center outline-none font-light" />
+                 <button type="submit" className="w-1/2 bg-rose-500/20 hover:bg-rose-500/40 border border-rose-500/30 text-rose-200 rounded-xl text-xs font-medium transition-colors">Призвать</button>
+              </div>
+            </form>
+          </div>
+
+          <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10">
             <h3 className="text-sm font-light text-white mb-5 tracking-wide">Конфигурация Базы</h3>
             <form onSubmit={handleAddCategory} className="flex gap-3 mb-5">
               <input type="text" placeholder="Новый Путь..." required value={newCategoryInput} onChange={(e) => setNewCategoryInput(e.target.value)} className="flex-1 bg-black/20 text-slate-200 rounded-xl px-5 py-3.5 border border-white/10 text-xs focus:border-white/30 outline-none placeholder:text-slate-600 font-light" />
@@ -421,43 +501,15 @@ function App() {
             </form>
           </div>
 
-          {/* УПРАВЛЕНИЕ ДАННЫМИ (СТЕКЛЯННЫЕ АККОРДЕОНЫ) */}
-          <div className="space-y-3">
-            <details className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl overflow-hidden group">
-              <summary className="px-6 py-5 text-[10px] font-medium text-slate-400 uppercase tracking-widest cursor-pointer select-none group-open:text-white group-open:bg-white/5 transition-colors">Управление задачами</summary>
-              <div className="px-6 pb-5 max-h-48 overflow-y-auto space-y-3 border-t border-white/10 pt-4">
-                {quests.map(q => (<div key={q.id} className="flex justify-between items-center"><span className="text-xs text-slate-400 truncate pr-3 font-light">{q.title}</span><button onClick={() => handleDeleteQuest(q.id)} className="text-[10px] font-medium text-slate-500 hover:text-red-400 px-3 py-1.5 bg-black/30 rounded-lg border border-white/5 transition-colors">Удалить</button></div>))}
-              </div>
-            </details>
-            <details className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl overflow-hidden group">
-              <summary className="px-6 py-5 text-[10px] font-medium text-slate-400 uppercase tracking-widest cursor-pointer select-none group-open:text-white group-open:bg-white/5 transition-colors">Управление ветвями</summary>
-              <div className="px-6 pb-5 max-h-48 overflow-y-auto space-y-3 border-t border-white/10 pt-4">
-                {dbCategories.map(c => (<div key={c.id} className="flex justify-between items-center"><span className="text-xs text-slate-400 truncate pr-3 font-light">{c.name}</span><button onClick={() => handleDeleteCategory(c.id)} className="text-[10px] font-medium text-slate-500 hover:text-red-400 px-3 py-1.5 bg-black/30 rounded-lg border border-white/5 transition-colors">Удалить</button></div>))}
-              </div>
-            </details>
-            <details className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl overflow-hidden group">
-              <summary className="px-6 py-5 text-[10px] font-medium text-slate-400 uppercase tracking-widest cursor-pointer select-none group-open:text-white group-open:bg-white/5 transition-colors">Управление магазином</summary>
-              <div className="px-6 pb-5 max-h-48 overflow-y-auto space-y-3 border-t border-white/10 pt-4">
-                {rewards.map(r => (<div key={r.id} className="flex justify-between items-center"><span className="text-xs text-slate-400 truncate pr-3 font-light">{r.title}</span><button onClick={() => handleDeleteReward(r.id)} className="text-[10px] font-medium text-slate-500 hover:text-red-400 px-3 py-1.5 bg-black/30 rounded-lg border border-white/5 transition-colors">Удалить</button></div>))}
-              </div>
-            </details>
-          </div>
         </div>
       )}
 
-      {/* === ВКЛАДКА 4: АНАЛИТИКА === */}
+      {/* === ВКЛАДКА 4: АНАЛИТИКА (Добавил чтобы было как раньше) === */}
       {activeTab === 'analytics' && (
         <div className="w-full max-w-md space-y-6 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
-          <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
-            <h2 className="text-sm font-light text-white mb-8 tracking-wide text-center">Распределение опыта</h2>
-            {chartData?.labels?.length > 0 ? (
-              <div className="relative w-full h-72"><canvas id="analyticsChart"></canvas></div>
-            ) : (<div className="text-center py-16 text-xs text-slate-500 font-light tracking-widest uppercase">Нет данных для анализа</div>)}
-          </div>
-
-          <div className="bg-white/5 backdrop-blur-md rounded-[2rem] p-7 border border-white/10 shadow-[0_4px_16px_0_rgba(0,0,0,0.1)]">
+           <div className="bg-white/5 backdrop-blur-md rounded-[2rem] p-7 border border-white/10 shadow-[0_4px_16px_0_rgba(0,0,0,0.1)]">
               <h3 className="text-[10px] font-medium text-slate-500 uppercase tracking-widest mb-5">Журнал событий</h3>
-              <div className="space-y-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+              <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
                 {logs.map(log => (<div key={log.id} className="text-xs text-slate-400 border-l border-white/10 pl-4 py-1 font-light tracking-wide">{log.text}</div>))}
                 {logs.length === 0 && <div className="text-xs text-slate-600 font-light">Система ожидает действий.</div>}
               </div>
