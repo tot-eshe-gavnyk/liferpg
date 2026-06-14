@@ -59,6 +59,7 @@ class CompleteQuestInput(BaseModel):
 class RewardCreateInput(BaseModel):
     title: str
     cost: int = 30
+    description: str | None = None
 
 class BuyRewardInput(BaseModel):
     reward_id: str
@@ -320,10 +321,16 @@ def get_rewards():
     return {"rewards": [{"id": str(r.pop("_id")), **r} for r in rewards_collection.find()]}
 
 @app.post("/add_reward")
-def add_reward(reward: RewardCreateInput):
-    new_r = reward.dict(); res = rewards_collection.insert_one(new_r)
-    new_r["id"] = str(res.inserted_id); del new_r["_id"]
-    return new_r
+async def add_reward(reward: RewardCreate):
+    new_reward = {
+        "id": str(uuid.uuid4()), # (или как у тебя генерируется ID)
+        "title": reward.title,
+        "cost": reward.cost,
+        "description": reward.description  # <--- Добавь вот эту строчку
+    }
+    
+    db.rewards.insert_one(new_reward)
+    return {"status": "success"}
 
 @app.post("/buy_reward")
 def buy_reward(data: BuyRewardInput):
