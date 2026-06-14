@@ -23,6 +23,7 @@ function App() {
   const [newXp, setNewXp] = useState(15)
   const [newGold, setNewGold] = useState(15)
   const [newCategory, setNewCategory] = useState('')
+  const [newSubcategory, setNewSubcategory] = useState('') // НОВОЕ СОСТОЯНИЕ ДЛЯ ПОДКАТЕГОРИИ
   const [newRequiresId, setNewRequiresId] = useState('')
   const [newIsDaily, setNewIsDaily] = useState(false)
   
@@ -133,9 +134,9 @@ function App() {
     const finalCategory = newCategory || (dbCategories.length > 0 ? dbCategories[0].name : "✨ Разное");
     await axios.post(`${API_URL}/add_quest`, {
       title: newTitle, description: newDesc, xp: Number(newXp), gold: Number(newGold), 
-      category: finalCategory, requires_id: newRequiresId, is_daily: newIsDaily
+      category: finalCategory, subcategory: newSubcategory, requires_id: newRequiresId, is_daily: newIsDaily
     });
-    setNewTitle(''); setNewDesc(''); setNewRequiresId(''); setNewIsDaily(false);
+    setNewTitle(''); setNewDesc(''); setNewRequiresId(''); setNewIsDaily(false); setNewSubcategory('');
     fetchData(); setActiveTab('play');
   }
 
@@ -246,7 +247,6 @@ function App() {
             <div className="flex justify-between items-start relative z-10 mb-5">
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-1">
-                  {/* ИМЯ ЖЕСТКО ЗАМЕНЕНО НА "ТВОРЕЦ" ЗДЕСЬ */}
                   <h1 className="text-3xl font-light text-white tracking-tight">Творец</h1>
                   {profile.streak > 0 && <span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-lg text-[10px] font-bold tracking-widest">🔥 x{profile.current_multiplier?.toFixed(2)}</span>}
                 </div>
@@ -286,6 +286,23 @@ function App() {
               const catData = profile.category_levels?.[category] || { level: 1, percent: 0, is_maxed: false };
               const isDefaultOpen = category === '🔥 Дейлики' || category.toLowerCase().includes('дейлик');
               
+              const catQuests = getSortedQuests(category);
+              
+              // ГРУППИРОВКА КВЕСТОВ ПО ПОДКАТЕГОРИЯМ
+              const groupedQuests = catQuests.reduce((acc, quest) => {
+                const sub = quest.subcategory || '';
+                if (!acc[sub]) acc[sub] = [];
+                acc[sub].push(quest);
+                return acc;
+              }, {});
+
+              // Сортируем: сначала квесты без подкатегории, затем остальные по алфавиту
+              const sortedSubcategories = Object.keys(groupedQuests).sort((a, b) => {
+                if (a === '') return -1;
+                if (b === '') return 1;
+                return a.localeCompare(b);
+              });
+              
               return (
                 <details key={category} open={isDefaultOpen} className="group bg-white/5 backdrop-blur-xl border border-white/10 rounded-[2rem] shadow-sm transition-all duration-300 open:shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
                   <summary className="flex items-center justify-between p-6 cursor-pointer select-none list-none [&::-webkit-details-marker]:hidden outline-none">
@@ -308,39 +325,53 @@ function App() {
                     </div>
                   </summary>
 
-                  <div className="px-5 pb-6 space-y-3 border-t border-white/5 pt-5">
-                    {getSortedQuests(category).map((quest) => {
-                      const parentQuest = quest.requires_id ? quests.find(q => q.id === quest.requires_id) : null;
-                      const isLocked = parentQuest && !parentQuest.completed;
-                      
-                      return (
-                        <div key={quest.id} className={`p-5 rounded-2xl flex justify-between items-center transition-all duration-500 backdrop-blur-md ${quest.completed ? 'bg-white/5 border border-transparent opacity-40 grayscale' : isLocked ? 'bg-black/20 border border-white/5 opacity-50' : 'bg-white/10 border border-white/10 hover:bg-white/15 shadow-sm'}`}>
-                          <div className="pr-4 flex-1">
-                            <div className="flex flex-wrap items-center gap-2 mb-2">
-                              {isLocked && <span className="text-[9px] text-slate-400 bg-black/40 border border-white/5 px-2.5 py-1 rounded-full font-medium tracking-wide">🔒 Ждет: {parentQuest?.title || '...'}</span>}
-                              {quest.is_daily && <span className="text-[9px] text-teal-300 bg-teal-500/10 border border-teal-500/20 px-2.5 py-1 rounded-full font-medium tracking-wide">🔥 Дейлик</span>}
-                            </div>
-                            
-                            <h3 className={`text-[15px] font-medium tracking-wide ${quest.completed ? 'text-slate-500 line-through' : isLocked ? 'text-slate-500' : 'text-slate-100'}`}>{quest.title}</h3>
-                            {quest.description && <p className="text-[11px] text-slate-400/80 mt-1 line-clamp-2 font-light">{quest.description}</p>}
-                          </div>
-                          
-                          <div className="flex flex-col items-end justify-center gap-2 min-w-[75px]">
-                            {!quest.completed && (
-                              <div className="text-[10px] font-medium flex gap-2 tracking-wide mb-0.5">
-                                <span className={isLocked ? 'text-slate-600' : 'text-teal-300/90'}>{quest.xp} XP</span>
-                                <span className={isLocked ? 'text-slate-600' : 'text-amber-300/90'}>{quest.gold} G</span>
-                              </div>
-                            )}
-                            <button onClick={() => completeQuest(quest)} disabled={quest.completed || isLocked} className={`px-4 py-2 rounded-lg text-[10px] font-medium tracking-widest uppercase transition-all duration-300 ${quest.completed ? 'bg-transparent text-slate-600' : isLocked ? 'bg-black/30 text-slate-600 border border-white/5' : 'bg-white/10 text-white hover:bg-white border border-white/20 hover:text-black shadow-md backdrop-blur-sm'}`}>
-                              {quest.completed ? 'Сдано' : isLocked ? 'Блок' : 'Зачет'}
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {getSortedQuests(category).length === 0 && (
+                  <div className="px-5 pb-6 border-t border-white/5 pt-5 space-y-6">
+                    {catQuests.length === 0 ? (
                       <div className="text-center text-slate-500 text-xs py-4 font-light tracking-widest uppercase">Нет доступных задач</div>
+                    ) : (
+                      sortedSubcategories.map(sub => (
+                        <div key={sub} className="space-y-3">
+                          {/* КРАСИВЫЙ РАЗДЕЛИТЕЛЬ ДЛЯ ПОДКАТЕГОРИИ */}
+                          {sub && (
+                            <div className="flex items-center gap-3 mb-4 px-2">
+                              <span className="h-px bg-white/10 w-4"></span>
+                              <h4 className="text-[9px] text-teal-400/60 font-medium uppercase tracking-[0.25em]">{sub}</h4>
+                              <span className="h-px bg-white/10 flex-1"></span>
+                            </div>
+                          )}
+                          
+                          {groupedQuests[sub].map((quest) => {
+                            const parentQuest = quest.requires_id ? quests.find(q => q.id === quest.requires_id) : null;
+                            const isLocked = parentQuest && !parentQuest.completed;
+                            
+                            return (
+                              <div key={quest.id} className={`p-5 rounded-2xl flex justify-between items-center transition-all duration-500 backdrop-blur-md ${quest.completed ? 'bg-white/5 border border-transparent opacity-40 grayscale' : isLocked ? 'bg-black/20 border border-white/5 opacity-50' : 'bg-white/10 border border-white/10 hover:bg-white/15 shadow-sm'}`}>
+                                <div className="pr-4 flex-1">
+                                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                                    {isLocked && <span className="text-[9px] text-slate-400 bg-black/40 border border-white/5 px-2.5 py-1 rounded-full font-medium tracking-wide">🔒 Ждет: {parentQuest?.title || '...'}</span>}
+                                    {quest.is_daily && <span className="text-[9px] text-teal-300 bg-teal-500/10 border border-teal-500/20 px-2.5 py-1 rounded-full font-medium tracking-wide">🔥 Дейлик</span>}
+                                  </div>
+                                  
+                                  <h3 className={`text-[15px] font-medium tracking-wide ${quest.completed ? 'text-slate-500 line-through' : isLocked ? 'text-slate-500' : 'text-slate-100'}`}>{quest.title}</h3>
+                                  {quest.description && <p className="text-[11px] text-slate-400/80 mt-1 line-clamp-2 font-light">{quest.description}</p>}
+                                </div>
+                                
+                                <div className="flex flex-col items-end justify-center gap-2 min-w-[75px]">
+                                  {!quest.completed && (
+                                    <div className="text-[10px] font-medium flex gap-2 tracking-wide mb-0.5">
+                                      <span className={isLocked ? 'text-slate-600' : 'text-teal-300/90'}>{quest.xp} XP</span>
+                                      <span className={isLocked ? 'text-slate-600' : 'text-amber-300/90'}>{quest.gold} G</span>
+                                    </div>
+                                  )}
+                                  <button onClick={() => completeQuest(quest)} disabled={quest.completed || isLocked} className={`px-4 py-2 rounded-lg text-[10px] font-medium tracking-widest uppercase transition-all duration-300 ${quest.completed ? 'bg-transparent text-slate-600' : isLocked ? 'bg-black/30 text-slate-600 border border-white/5' : 'bg-white/10 text-white hover:bg-white border border-white/20 hover:text-black shadow-md backdrop-blur-sm'}`}>
+                                    {quest.completed ? 'Сдано' : isLocked ? 'Блок' : 'Зачет'}
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))
                     )}
                   </div>
                 </details>
@@ -381,7 +412,6 @@ function App() {
                 <div key={reward.id} className="p-5 bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl flex justify-between items-center hover:bg-white/10 transition-all duration-300">
                   <div className="pr-4">
                     <h3 className="font-light text-base text-slate-100 tracking-wide">{reward.title}</h3>
-                    {/* ТЕПЕРЬ ОПИСАНИЕ ОТОБРАЖАЕТСЯ В МАГАЗИНЕ */}
                     {reward.description && <p className="text-[11px] text-slate-400/80 mt-1 line-clamp-2 font-light">{reward.description}</p>}
                     <p className="text-xs text-amber-300/80 font-medium mt-2 tracking-wide">{reward.cost} G</p>
                   </div>
@@ -403,13 +433,17 @@ function App() {
                 <input type="text" placeholder="Название..." required value={newTitle} onChange={(e) => setNewTitle(e.target.value)} className="w-full bg-black/20 text-slate-200 rounded-xl px-5 py-4 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
                 <textarea placeholder="Детали или шаги (опционально)" value={newDesc} onChange={(e) => setNewDesc(e.target.value)} className="w-full bg-black/20 text-slate-300 rounded-xl px-5 py-4 border border-white/10 text-xs min-h-[90px] focus:border-white/30 outline-none font-light custom-scrollbar" />
               </div>
+              
+              <div className="flex gap-3 mb-4">
+                <select value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="w-1/2 bg-black/20 text-slate-300 rounded-xl px-4 py-3.5 border border-white/10 text-sm focus:border-white/30 outline-none appearance-none font-light">
+                  {dbCategories.map(c => <option key={c.id} value={c.name} className="bg-slate-900">{c.name}</option>)}
+                  {dbCategories.length === 0 && <option value="✨ Разное" className="bg-slate-900">✨ Разное</option>}
+                </select>
+                {/* НОВОЕ ПОЛЕ ДЛЯ ПОДКАТЕГОРИИ */}
+                <input type="text" placeholder="Подкатегория (опция)" value={newSubcategory} onChange={(e) => setNewSubcategory(e.target.value)} className="w-1/2 bg-black/20 text-teal-300 rounded-xl px-4 py-3.5 border border-white/10 text-xs focus:border-white/30 outline-none font-light placeholder:text-slate-500" />
+              </div>
+
               <div className="grid grid-cols-2 gap-4 mb-5">
-                <div className="col-span-2">
-                  <select value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="w-full bg-black/20 text-slate-300 rounded-xl px-4 py-3.5 border border-white/10 text-sm focus:border-white/30 outline-none appearance-none font-light">
-                    {dbCategories.map(c => <option key={c.id} value={c.name} className="bg-slate-900">{c.name}</option>)}
-                    {dbCategories.length === 0 && <option value="✨ Разное" className="bg-slate-900">✨ Разное</option>}
-                  </select>
-                </div>
                 <input type="number" placeholder="XP" required min="1" value={newXp} onChange={(e) => setNewXp(e.target.value)} className="w-full bg-black/20 text-teal-300 rounded-xl px-4 py-3.5 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
                 <input type="number" placeholder="Gold" required min="1" value={newGold} onChange={(e) => setNewGold(e.target.value)} className="w-full bg-black/20 text-amber-300 rounded-xl px-4 py-3.5 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
               </div>
@@ -435,7 +469,6 @@ function App() {
             </form>
 
             <h3 className="text-sm font-light text-white mb-4 tracking-wide text-center border-t border-white/10 pt-6">Добавить Награду</h3>
-            {/* ФОРМА НАГРАДЫ ТЕПЕРЬ С ОПИСАНИЕМ */}
             <form onSubmit={handleAddReward} className="flex flex-col gap-3">
               <div className="flex gap-3">
                 <input type="text" placeholder="Название награды..." required value={newRewardTitle} onChange={(e) => setNewRewardTitle(e.target.value)} className="flex-1 bg-black/20 text-slate-200 rounded-xl px-5 py-3.5 border border-white/10 text-xs focus:border-white/30 outline-none font-light" />
