@@ -25,7 +25,9 @@ function App() {
   const [newCategory, setNewCategory] = useState('')
   const [newRequiresId, setNewRequiresId] = useState('')
   const [newIsDaily, setNewIsDaily] = useState(false)
+  
   const [newRewardTitle, setNewRewardTitle] = useState('')
+  const [newRewardDesc, setNewRewardDesc] = useState('')
   const [newRewardCost, setNewRewardCost] = useState(30)
   const [newCategoryInput, setNewCategoryInput] = useState('')
 
@@ -139,8 +141,12 @@ function App() {
 
   const handleAddReward = async (e) => {
     e.preventDefault(); if (!newRewardTitle) return;
-    await axios.post(`${API_URL}/add_reward`, { title: newRewardTitle, cost: Number(newRewardCost) });
-    setNewRewardTitle(''); fetchData(); setActiveTab('shop');
+    await axios.post(`${API_URL}/add_reward`, { 
+      title: newRewardTitle, 
+      description: newRewardDesc, 
+      cost: Number(newRewardCost) 
+    });
+    setNewRewardTitle(''); setNewRewardDesc(''); fetchData(); setActiveTab('shop');
   }
 
   const handleAddCategory = async (e) => {
@@ -240,7 +246,8 @@ function App() {
             <div className="flex justify-between items-start relative z-10 mb-5">
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-1">
-                  <h1 className="text-3xl font-light text-white tracking-tight">{profile.name}</h1>
+                  {/* ИМЯ ЖЕСТКО ЗАМЕНЕНО НА "ТВОРЕЦ" ЗДЕСЬ */}
+                  <h1 className="text-3xl font-light text-white tracking-tight">Творец</h1>
                   {profile.streak > 0 && <span className="bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-0.5 rounded-lg text-[10px] font-bold tracking-widest">🔥 x{profile.current_multiplier?.toFixed(2)}</span>}
                 </div>
                 <p className="text-xs text-teal-400 font-medium tracking-widest uppercase">{rank} • {profile.level} УРОВЕНЬ</p>
@@ -372,9 +379,11 @@ function App() {
             <div className="space-y-3">
               {rewards.map(reward => (
                 <div key={reward.id} className="p-5 bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl flex justify-between items-center hover:bg-white/10 transition-all duration-300">
-                  <div>
+                  <div className="pr-4">
                     <h3 className="font-light text-base text-slate-100 tracking-wide">{reward.title}</h3>
-                    <p className="text-xs text-amber-300/80 font-medium mt-1.5 tracking-wide">{reward.cost} G</p>
+                    {/* ТЕПЕРЬ ОПИСАНИЕ ОТОБРАЖАЕТСЯ В МАГАЗИНЕ */}
+                    {reward.description && <p className="text-[11px] text-slate-400/80 mt-1 line-clamp-2 font-light">{reward.description}</p>}
+                    <p className="text-xs text-amber-300/80 font-medium mt-2 tracking-wide">{reward.cost} G</p>
                   </div>
                   <button onClick={() => buyReward(reward.id)} disabled={profile.gold < reward.cost} className={`px-6 py-2.5 rounded-xl text-[10px] font-medium tracking-widest uppercase transition-all duration-300 ${profile.gold >= reward.cost ? 'bg-amber-400 text-amber-950 hover:bg-amber-300 shadow-[0_0_15px_rgba(251,191,36,0.4)]' : 'bg-black/30 text-slate-600 border border-white/5'}`}>Купить</button>
                 </div>
@@ -392,7 +401,7 @@ function App() {
             <form onSubmit={handleAddQuest}>
               <div className="space-y-4 mb-6">
                 <input type="text" placeholder="Название..." required value={newTitle} onChange={(e) => setNewTitle(e.target.value)} className="w-full bg-black/20 text-slate-200 rounded-xl px-5 py-4 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
-                <textarea placeholder="Детали или шаги (опционально)" value={newDesc} onChange={(e) => setNewDesc(e.target.value)} className="w-full bg-black/20 text-slate-300 rounded-xl px-5 py-4 border border-white/10 text-xs min-h-[90px] focus:border-white/30 outline-none font-light" />
+                <textarea placeholder="Детали или шаги (опционально)" value={newDesc} onChange={(e) => setNewDesc(e.target.value)} className="w-full bg-black/20 text-slate-300 rounded-xl px-5 py-4 border border-white/10 text-xs min-h-[90px] focus:border-white/30 outline-none font-light custom-scrollbar" />
               </div>
               <div className="grid grid-cols-2 gap-4 mb-5">
                 <div className="col-span-2">
@@ -420,14 +429,20 @@ function App() {
 
           <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10">
             <h3 className="text-sm font-light text-white mb-5 tracking-wide">Конфигурация Базы</h3>
-            <form onSubmit={handleAddCategory} className="flex gap-3 mb-5">
+            <form onSubmit={handleAddCategory} className="flex gap-3 mb-8">
               <input type="text" placeholder="Новый Путь..." required value={newCategoryInput} onChange={(e) => setNewCategoryInput(e.target.value)} className="flex-1 bg-black/20 text-slate-200 rounded-xl px-5 py-3.5 border border-white/10 text-xs focus:border-white/30 outline-none font-light" />
               <button type="submit" className="bg-white/10 hover:bg-white/20 border border-white/10 text-white px-6 rounded-xl text-sm font-light transition-colors">+</button>
             </form>
-            <form onSubmit={handleAddReward} className="flex gap-3">
-              <input type="text" placeholder="Новая награда..." required value={newRewardTitle} onChange={(e) => setNewRewardTitle(e.target.value)} className="flex-1 bg-black/20 text-slate-200 rounded-xl px-5 py-3.5 border border-white/10 text-xs focus:border-white/30 outline-none font-light" />
-              <input type="number" placeholder="Цена" required min="1" value={newRewardCost} onChange={(e) => setNewRewardCost(e.target.value)} className="w-24 bg-black/20 text-amber-300 rounded-xl px-4 py-3.5 border border-white/10 text-xs text-center outline-none font-light" />
-              <button type="submit" className="bg-white/10 hover:bg-white/20 border border-white/10 text-white px-6 rounded-xl text-sm font-light transition-colors">+</button>
+
+            <h3 className="text-sm font-light text-white mb-4 tracking-wide text-center border-t border-white/10 pt-6">Добавить Награду</h3>
+            {/* ФОРМА НАГРАДЫ ТЕПЕРЬ С ОПИСАНИЕМ */}
+            <form onSubmit={handleAddReward} className="flex flex-col gap-3">
+              <div className="flex gap-3">
+                <input type="text" placeholder="Название награды..." required value={newRewardTitle} onChange={(e) => setNewRewardTitle(e.target.value)} className="flex-1 bg-black/20 text-slate-200 rounded-xl px-5 py-3.5 border border-white/10 text-xs focus:border-white/30 outline-none font-light" />
+                <input type="number" placeholder="Цена" required min="1" value={newRewardCost} onChange={(e) => setNewRewardCost(e.target.value)} className="w-24 bg-black/20 text-amber-300 rounded-xl px-4 py-3.5 border border-white/10 text-xs text-center outline-none font-light" />
+              </div>
+              <textarea placeholder="Опиши ценность и правила (опционально)..." value={newRewardDesc} onChange={(e) => setNewRewardDesc(e.target.value)} className="w-full bg-black/20 text-slate-300 rounded-xl px-5 py-3 border border-white/10 text-xs min-h-[60px] focus:border-white/30 outline-none font-light custom-scrollbar" />
+              <button type="submit" className="bg-white/10 hover:bg-white/20 border border-white/10 text-white py-3 rounded-xl text-xs font-light transition-colors w-full uppercase tracking-widest mt-2">Добавить в Магазин</button>
             </form>
           </div>
 
