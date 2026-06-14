@@ -34,7 +34,7 @@ try:
     logs_collection = db["logs"]
     history_collection = db["history"] 
     categories_collection = db["categories"] 
-    bosses_collection = db["bosses"] # НОВАЯ: Коллекция Боссов
+    bosses_collection = db["bosses"] 
     
     print("🚀 Успешно подключено к кластеру MongoDB Atlas!")
 except Exception as e:
@@ -193,7 +193,6 @@ def get_profile():
     raw_stats = profile.get("stats", {})
     enhanced_stats = {cat: {"total_xp": xp, **calculate_category_progress(xp)} for cat, xp in raw_stats.items()}
     
-    # Расчет множителя для фронтенда
     multiplier = 1.0 + (min(profile.get("streak", 0), 10) * 0.05)
     
     return {
@@ -257,7 +256,6 @@ def complete_quest(data: CompleteQuestInput):
     quests_collection.update_one({"_id": obj_id}, {"$set": {"completed": True}})
     profile = get_or_create_profile()
     
-    # Система Множителей Стрика
     streak = profile.get("streak", 0)
     multiplier = 1.0 + (min(streak, 10) * 0.05)
     
@@ -268,7 +266,6 @@ def complete_quest(data: CompleteQuestInput):
     gold_gain = int(base_gold * multiplier)
     category = quest.get("category", "✨ Разное")
 
-    # Урон по Боссу
     boss_defeated = False
     active_boss = bosses_collection.find_one({"is_defeated": False})
     if active_boss:
@@ -282,7 +279,6 @@ def complete_quest(data: CompleteQuestInput):
         else:
             bosses_collection.update_one({"_id": active_boss["_id"]}, {"$set": {"current_hp": new_boss_hp}})
 
-    # Прокачка профиля
     stats = profile.get("stats", {})
     old_cat_xp = stats.get(category, 0)
     stats[category] = old_cat_xp + xp_gain
@@ -321,15 +317,9 @@ def get_rewards():
     return {"rewards": [{"id": str(r.pop("_id")), **r} for r in rewards_collection.find()]}
 
 @app.post("/add_reward")
-async def add_reward(reward: RewardCreate):
-    new_reward = {
-        "id": str(uuid.uuid4()), # (или как у тебя генерируется ID)
-        "title": reward.title,
-        "cost": reward.cost,
-        "description": reward.description  # <--- Добавь вот эту строчку
-    }
-    
-    db.rewards.insert_one(new_reward)
+def add_reward(reward: RewardCreateInput):
+    new_reward = reward.dict()
+    rewards_collection.insert_one(new_reward)
     return {"status": "success"}
 
 @app.post("/buy_reward")
@@ -341,7 +331,6 @@ def buy_reward(data: BuyRewardInput):
     
     if not reward or profile["gold"] < reward["cost"]: raise HTTPException(status_code=400)
 
-    # Добавляем в инвентарь
     inventory = profile.get("inventory", {})
     item_title = reward["title"]
     inventory[item_title] = inventory.get(item_title, 0) + 1
@@ -383,7 +372,6 @@ def add_boss(boss: BossCreateInput):
     new_boss["current_hp"] = new_boss["max_hp"]
     new_boss["is_defeated"] = False
     
-    # Убираем предыдущих активных боссов
     bosses_collection.update_many({"is_defeated": False}, {"$set": {"is_defeated": True}})
     
     res = bosses_collection.insert_one(new_boss)
