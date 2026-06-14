@@ -199,12 +199,10 @@ function App() {
   return (
     <div className="relative min-h-screen bg-[#040914] text-slate-200 flex flex-col items-center py-8 px-4 font-sans pb-28 overflow-x-hidden selection:bg-teal-500/30">
       
-      {/* МЯГКИЕ ФОНОВЫЕ СВЕЧЕНИЯ */}
       <div className="fixed top-[-10%] left-[-15%] w-[60vw] h-[60vw] rounded-full bg-teal-600/10 blur-[120px] pointer-events-none mix-blend-screen"></div>
       <div className="fixed bottom-[-10%] right-[-15%] w-[60vw] h-[60vw] rounded-full bg-purple-600/10 blur-[120px] pointer-events-none mix-blend-screen"></div>
       <div className="fixed top-[40%] right-[-10%] w-[40vw] h-[40vw] rounded-full bg-amber-600/5 blur-[100px] pointer-events-none mix-blend-screen"></div>
 
-      {/* МОДАЛКИ LEVEL UP */}
       {showLevelUpModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-50 p-4 transition-all duration-500">
           <div className="bg-white/10 border border-white/20 rounded-[2rem] p-10 max-w-sm w-full text-center shadow-[0_0_80px_rgba(45,212,191,0.2)] backdrop-blur-2xl">
@@ -227,7 +225,6 @@ function App() {
         </div>
       )}
 
-      {/* НАВИГАЦИЯ */}
       <div className="w-full max-w-md bg-white/5 p-1.5 rounded-2xl border border-white/10 flex gap-1 mb-8 backdrop-blur-2xl sticky top-4 z-40 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
         <button onClick={() => setActiveTab('play')} className={`flex-1 py-3 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'play' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>Квесты</button>
         <button onClick={() => setActiveTab('shop')} className={`flex-1 py-3 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'shop' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>Магазин</button>
@@ -235,11 +232,9 @@ function App() {
         <button onClick={() => setActiveTab('analytics')} className={`flex-1 py-3 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'analytics' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>Аналитика</button>
       </div>
 
-      {/* === ВКЛАДКА 1: PLAY === */}
       {activeTab === 'play' && (
         <div className="w-full max-w-md relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
           
-          {/* ПРОФИЛЬ */}
           <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] relative overflow-hidden group mb-8">
             <div className="absolute -right-10 -top-10 w-40 h-40 bg-teal-500/20 rounded-full blur-3xl group-hover:bg-teal-400/30 transition-all duration-1000"></div>
             <div className="flex justify-between items-start relative z-10 mb-5">
@@ -256,7 +251,6 @@ function App() {
               </div>
             </div>
 
-            {/* ШКАЛЫ */}
             <div className="space-y-4">
               <div>
                 <div className="mb-1.5 flex justify-between text-[10px] text-slate-400 font-medium tracking-widest uppercase">
@@ -280,7 +274,6 @@ function App() {
             </div>
           </div>
 
-          {/* СПИСОК ПАПОК (АККОРДЕОНЫ) */}
           <div className="space-y-4">
             {activeQuestCategories.map(category => {
               const catData = profile.category_levels?.[category] || { level: 1, percent: 0, is_maxed: false };
@@ -311,39 +304,35 @@ function App() {
                   <div className="px-5 pb-6 space-y-3 border-t border-white/5 pt-5">
                     {getSortedQuests(category).map((quest) => {
                       const parentQuest = quest.requires_id ? quests.find(q => q.id === quest.requires_id) : null;
-                      
-                      if (parentQuest && !parentQuest.completed) return null;
+                      const isLocked = parentQuest && !parentQuest.completed;
                       
                       return (
-                        // ИСПРАВЛЕННЫЕ ОТСТУПЫ ЗДЕСЬ (p-5 вместо py-3.5 px-4.5)
-                        <div key={quest.id} className={`p-5 rounded-2xl flex justify-between items-center transition-all duration-500 backdrop-blur-md ${quest.completed ? 'bg-white/5 border border-transparent opacity-40 grayscale' : 'bg-white/10 border border-white/10 hover:bg-white/15 shadow-sm'}`}>
+                        <div key={quest.id} className={`p-5 rounded-2xl flex justify-between items-center transition-all duration-500 backdrop-blur-md ${quest.completed ? 'bg-white/5 border border-transparent opacity-40 grayscale' : isLocked ? 'bg-black/20 border border-white/5 opacity-50' : 'bg-white/10 border border-white/10 hover:bg-white/15 shadow-sm'}`}>
                           <div className="pr-4 flex-1">
                             <div className="flex flex-wrap items-center gap-2 mb-2">
+                              {isLocked && <span className="text-[9px] text-slate-400 bg-black/40 border border-white/5 px-2.5 py-1 rounded-full font-medium tracking-wide">🔒 Ждет: {parentQuest?.title || '...'}</span>}
                               {quest.is_daily && <span className="text-[9px] text-teal-300 bg-teal-500/10 border border-teal-500/20 px-2.5 py-1 rounded-full font-medium tracking-wide">🔥 Дейлик</span>}
                             </div>
                             
-                            <h3 className={`text-[15px] font-medium tracking-wide ${quest.completed ? 'text-slate-500 line-through' : 'text-slate-100'}`}>{quest.title}</h3>
+                            <h3 className={`text-[15px] font-medium tracking-wide ${quest.completed ? 'text-slate-500 line-through' : isLocked ? 'text-slate-500' : 'text-slate-100'}`}>{quest.title}</h3>
                             {quest.description && <p className="text-[11px] text-slate-400/80 mt-1 line-clamp-2 font-light">{quest.description}</p>}
                           </div>
                           
                           <div className="flex flex-col items-end justify-center gap-2 min-w-[75px]">
                             {!quest.completed && (
                               <div className="text-[10px] font-medium flex gap-2 tracking-wide mb-0.5">
-                                <span className="text-teal-300/90">{quest.xp} XP</span>
-                                <span className="text-amber-300/90">{quest.gold} G</span>
+                                <span className={isLocked ? 'text-slate-600' : 'text-teal-300/90'}>{quest.xp} XP</span>
+                                <span className={isLocked ? 'text-slate-600' : 'text-amber-300/90'}>{quest.gold} G</span>
                               </div>
                             )}
-                            <button onClick={() => completeQuest(quest)} disabled={quest.completed} className={`px-4 py-2 rounded-lg text-[10px] font-medium tracking-widest uppercase transition-all duration-300 ${quest.completed ? 'bg-transparent text-slate-600' : 'bg-white/10 text-white hover:bg-white border border-white/20 hover:text-black shadow-md backdrop-blur-sm'}`}>
-                              {quest.completed ? 'Сдано' : 'Зачет'}
+                            <button onClick={() => completeQuest(quest)} disabled={quest.completed || isLocked} className={`px-4 py-2 rounded-lg text-[10px] font-medium tracking-widest uppercase transition-all duration-300 ${quest.completed ? 'bg-transparent text-slate-600' : isLocked ? 'bg-black/30 text-slate-600 border border-white/5' : 'bg-white/10 text-white hover:bg-white border border-white/20 hover:text-black shadow-md backdrop-blur-sm'}`}>
+                              {quest.completed ? 'Сдано' : isLocked ? 'Блок' : 'Зачет'}
                             </button>
                           </div>
                         </div>
                       );
                     })}
-                    {getSortedQuests(category).filter(q => {
-                        const parent = q.requires_id ? quests.find(p => p.id === q.requires_id) : null;
-                        return !(parent && !parent.completed);
-                    }).length === 0 && (
+                    {getSortedQuests(category).length === 0 && (
                       <div className="text-center text-slate-500 text-xs py-4 font-light tracking-widest uppercase">Нет доступных задач</div>
                     )}
                   </div>
@@ -354,7 +343,6 @@ function App() {
         </div>
       )}
 
-      {/* === ВКЛАДКА 2: МАГАЗИН И ИНВЕНТАРЬ === */}
       {activeTab === 'shop' && (
         <div className="w-full max-w-md space-y-8 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
           
@@ -396,7 +384,6 @@ function App() {
         </div>
       )}
 
-      {/* === ВКЛАДКА 3: КУЗНИЦА === */}
       {activeTab === 'forge' && (
         <div className="w-full max-w-md space-y-6 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
           
@@ -467,7 +454,6 @@ function App() {
         </div>
       )}
 
-      {/* === ВКЛАДКА 4: АНАЛИТИКА === */}
       {activeTab === 'analytics' && (
         <div className="w-full max-w-md space-y-6 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
           <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
