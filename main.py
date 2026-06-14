@@ -101,7 +101,7 @@ def get_or_create_profile():
     if not profile:
         profile = {
             "_id": "main_profile",
-            "name": "Оператор",
+            "name": "Творец",
             "level": 1,
             "current_xp": 0,
             "gold": 0,
