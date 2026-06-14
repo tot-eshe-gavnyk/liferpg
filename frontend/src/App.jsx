@@ -235,7 +235,7 @@ function App() {
         <button onClick={() => setActiveTab('analytics')} className={`flex-1 py-3 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'analytics' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>Аналитика</button>
       </div>
 
-      {/* === ВКЛАДКА 1: PLAY (КВЕСТЫ В ПАПКАХ) === */}
+      {/* === ВКЛАДКА 1: PLAY === */}
       {activeTab === 'play' && (
         <div className="w-full max-w-md relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
           
@@ -284,7 +284,6 @@ function App() {
           <div className="space-y-4">
             {activeQuestCategories.map(category => {
               const catData = profile.category_levels?.[category] || { level: 1, percent: 0, is_maxed: false };
-              // По умолчанию держим открытыми только Дейлики
               const isDefaultOpen = category === '🔥 Дейлики' || category.toLowerCase().includes('дейлик');
               
               return (
@@ -303,40 +302,38 @@ function App() {
                            </div>
                         </div>
                       )}
-                      {/* Иконка стрелочки */}
                       <svg className="w-5 h-5 text-slate-500 group-open:rotate-180 transition-transform duration-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                       </svg>
                     </div>
                   </summary>
 
-                  <div className="px-5 pb-6 space-y-2.5 border-t border-white/5 pt-4">
+                  <div className="px-5 pb-6 space-y-3 border-t border-white/5 pt-5">
                     {getSortedQuests(category).map((quest) => {
                       const parentQuest = quest.requires_id ? quests.find(q => q.id === quest.requires_id) : null;
                       
-                      // МАГИЯ ЗДЕСЬ: Если родительский квест существует и еще не сдан — мы ПОЛНОСТЬЮ СКРЫВАЕМ этот квест.
-                      // Он "появится" только когда предыдущий шаг цепочки будет завершен.
                       if (parentQuest && !parentQuest.completed) return null;
                       
                       return (
-                        <div key={quest.id} className={`py-3.5 px-4.5 rounded-2xl flex justify-between items-center transition-all duration-500 backdrop-blur-md ${quest.completed ? 'bg-white/5 border border-transparent opacity-40 grayscale' : 'bg-white/10 border border-white/10 hover:bg-white/15 shadow-sm'}`}>
-                          <div className="pr-3 flex-1">
-                            <div className="flex flex-wrap items-center gap-2 mb-1.5">
-                              {quest.is_daily && <span className="text-[9px] text-teal-300 bg-teal-500/10 border border-teal-500/20 px-2 py-0.5 rounded-full font-medium tracking-wide">🔥 Дейлик</span>}
+                        // ИСПРАВЛЕННЫЕ ОТСТУПЫ ЗДЕСЬ (p-5 вместо py-3.5 px-4.5)
+                        <div key={quest.id} className={`p-5 rounded-2xl flex justify-between items-center transition-all duration-500 backdrop-blur-md ${quest.completed ? 'bg-white/5 border border-transparent opacity-40 grayscale' : 'bg-white/10 border border-white/10 hover:bg-white/15 shadow-sm'}`}>
+                          <div className="pr-4 flex-1">
+                            <div className="flex flex-wrap items-center gap-2 mb-2">
+                              {quest.is_daily && <span className="text-[9px] text-teal-300 bg-teal-500/10 border border-teal-500/20 px-2.5 py-1 rounded-full font-medium tracking-wide">🔥 Дейлик</span>}
                             </div>
                             
                             <h3 className={`text-[15px] font-medium tracking-wide ${quest.completed ? 'text-slate-500 line-through' : 'text-slate-100'}`}>{quest.title}</h3>
-                            {quest.description && <p className="text-[11px] text-slate-400/80 mt-0.5 line-clamp-1 font-light">{quest.description}</p>}
+                            {quest.description && <p className="text-[11px] text-slate-400/80 mt-1 line-clamp-2 font-light">{quest.description}</p>}
                           </div>
                           
-                          <div className="flex flex-col items-end justify-center gap-1.5 min-w-[70px]">
+                          <div className="flex flex-col items-end justify-center gap-2 min-w-[75px]">
                             {!quest.completed && (
                               <div className="text-[10px] font-medium flex gap-2 tracking-wide mb-0.5">
                                 <span className="text-teal-300/90">{quest.xp} XP</span>
                                 <span className="text-amber-300/90">{quest.gold} G</span>
                               </div>
                             )}
-                            <button onClick={() => completeQuest(quest)} disabled={quest.completed} className={`px-4 py-1.5 rounded-lg text-[10px] font-medium tracking-widest uppercase transition-all duration-300 ${quest.completed ? 'bg-transparent text-slate-600' : 'bg-white/10 text-white hover:bg-white border border-white/20 hover:text-black shadow-md backdrop-blur-sm'}`}>
+                            <button onClick={() => completeQuest(quest)} disabled={quest.completed} className={`px-4 py-2 rounded-lg text-[10px] font-medium tracking-widest uppercase transition-all duration-300 ${quest.completed ? 'bg-transparent text-slate-600' : 'bg-white/10 text-white hover:bg-white border border-white/20 hover:text-black shadow-md backdrop-blur-sm'}`}>
                               {quest.completed ? 'Сдано' : 'Зачет'}
                             </button>
                           </div>
