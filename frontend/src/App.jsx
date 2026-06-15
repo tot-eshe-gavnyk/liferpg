@@ -23,7 +23,7 @@ function App() {
   const [newXp, setNewXp] = useState(15)
   const [newGold, setNewGold] = useState(15)
   const [newCategory, setNewCategory] = useState('')
-  const [newSubcategory, setNewSubcategory] = useState('') // НОВОЕ СОСТОЯНИЕ ДЛЯ ПОДКАТЕГОРИИ
+  const [newSubcategory, setNewSubcategory] = useState('')
   const [newRequiresId, setNewRequiresId] = useState('')
   const [newIsDaily, setNewIsDaily] = useState(false)
   
@@ -203,6 +203,14 @@ function App() {
 
   const activeQuestCategories = [...new Set(quests.map(q => q.category || '✨ Разное'))];
 
+  // ВЫЧИСЛЕНИЕ ДОСТУПНЫХ ПОДКАТЕГОРИЙ ДЛЯ КУЗНИЦЫ
+  const currentCategoryForForge = newCategory || (dbCategories.length > 0 ? dbCategories[0].name : "✨ Разное");
+  const availableSubcategories = [...new Set(
+    quests
+      .filter(q => (q.category || '✨ Разное') === currentCategoryForForge && q.subcategory)
+      .map(q => q.subcategory)
+  )];
+
   return (
     <div className="relative min-h-screen bg-[#040914] text-slate-200 flex flex-col items-center py-8 px-4 font-sans pb-28 overflow-x-hidden selection:bg-teal-500/30">
       
@@ -288,7 +296,6 @@ function App() {
               
               const catQuests = getSortedQuests(category);
               
-              // ГРУППИРОВКА КВЕСТОВ ПО ПОДКАТЕГОРИЯМ
               const groupedQuests = catQuests.reduce((acc, quest) => {
                 const sub = quest.subcategory || '';
                 if (!acc[sub]) acc[sub] = [];
@@ -296,7 +303,6 @@ function App() {
                 return acc;
               }, {});
 
-              // Сортируем: сначала квесты без подкатегории, затем остальные по алфавиту
               const sortedSubcategories = Object.keys(groupedQuests).sort((a, b) => {
                 if (a === '') return -1;
                 if (b === '') return 1;
@@ -331,7 +337,6 @@ function App() {
                     ) : (
                       sortedSubcategories.map(sub => (
                         <div key={sub} className="space-y-3">
-                          {/* КРАСИВЫЙ РАЗДЕЛИТЕЛЬ ДЛЯ ПОДКАТЕГОРИИ */}
                           {sub && (
                             <div className="flex items-center gap-3 mb-4 px-2">
                               <span className="h-px bg-white/10 w-4"></span>
@@ -434,14 +439,31 @@ function App() {
                 <textarea placeholder="Детали или шаги (опционально)" value={newDesc} onChange={(e) => setNewDesc(e.target.value)} className="w-full bg-black/20 text-slate-300 rounded-xl px-5 py-4 border border-white/10 text-xs min-h-[90px] focus:border-white/30 outline-none font-light custom-scrollbar" />
               </div>
               
-              <div className="flex gap-3 mb-4">
+              <div className="flex gap-3 mb-2">
                 <select value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="w-1/2 bg-black/20 text-slate-300 rounded-xl px-4 py-3.5 border border-white/10 text-sm focus:border-white/30 outline-none appearance-none font-light">
                   {dbCategories.map(c => <option key={c.id} value={c.name} className="bg-slate-900">{c.name}</option>)}
                   {dbCategories.length === 0 && <option value="✨ Разное" className="bg-slate-900">✨ Разное</option>}
                 </select>
-                {/* НОВОЕ ПОЛЕ ДЛЯ ПОДКАТЕГОРИИ */}
                 <input type="text" placeholder="Подкатегория (опция)" value={newSubcategory} onChange={(e) => setNewSubcategory(e.target.value)} className="w-1/2 bg-black/20 text-teal-300 rounded-xl px-4 py-3.5 border border-white/10 text-xs focus:border-white/30 outline-none font-light placeholder:text-slate-500" />
               </div>
+
+              {/* УМНЫЕ ТЕГИ ДЛЯ ПОДКАТЕГОРИЙ */}
+              {availableSubcategories.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 mb-5 px-1">
+                  <span className="text-[9px] text-slate-500 uppercase tracking-widest mr-1">Быстрый выбор:</span>
+                  {availableSubcategories.map(sub => (
+                    <button 
+                      key={sub} 
+                      type="button" 
+                      onClick={() => setNewSubcategory(sub)} 
+                      className="text-[9px] bg-white/5 border border-white/10 px-2.5 py-1 rounded-md text-slate-300 hover:text-teal-300 hover:border-teal-500/30 transition-all font-medium"
+                    >
+                      {sub}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {availableSubcategories.length === 0 && <div className="mb-5"></div>}
 
               <div className="grid grid-cols-2 gap-4 mb-5">
                 <input type="number" placeholder="XP" required min="1" value={newXp} onChange={(e) => setNewXp(e.target.value)} className="w-full bg-black/20 text-teal-300 rounded-xl px-4 py-3.5 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
