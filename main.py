@@ -50,6 +50,7 @@ class QuestCreateInput(BaseModel):
     xp: int = 15
     gold: int = 15
     category: str = "✨ Разное"
+    subcategory: str = ""  # <--- ПОДКАТЕГОРИЯ ТЕПЕРЬ ОФИЦИАЛЬНО ЗДЕСЬ
     requires_id: str = ""  
     is_daily: bool = False 
 
@@ -116,7 +117,6 @@ def get_or_create_profile():
         }
         profile_collection.insert_one(profile)
 
-    # Инъекция новых полей в старую базу данных, если их нет
     updates = {}
     if "hp" not in profile: updates["hp"] = 100
     if "max_hp" not in profile: updates["max_hp"] = 100
@@ -155,7 +155,6 @@ def sync_new_day():
     new_gold = profile["gold"]
     logs = []
 
-    # Логика урона и стриков
     if len(dailies) > 0:
         if uncompleted_count > 0:
             damage = uncompleted_count * 20
@@ -166,14 +165,12 @@ def sync_new_day():
             new_streak += 1
             logs.append({"text": f"🔥 ИДЕАЛЬНЫЙ ДЕНЬ: Все дейлики закрыты! Стрик: {new_streak} дн.", "timestamp": datetime.utcnow()})
 
-    # Смерть (HP <= 0)
     if new_hp <= 0:
         penalty_gold = 50
         new_gold = max(0, new_gold - penalty_gold)
         new_hp = profile["max_hp"]
         logs.append({"text": f"☠️ СИСТЕМНЫЙ СБОЙ: HP упало до нуля. Списано {penalty_gold} 💰. Здоровье восстановлено.", "timestamp": datetime.utcnow()})
 
-    # Обновляем профиль и сбрасываем дейлики
     profile_collection.update_one({"_id": "main_profile"}, {
         "$set": {"hp": new_hp, "streak": new_streak, "gold": new_gold, "last_sync_date": today_str}
     })
