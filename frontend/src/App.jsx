@@ -12,6 +12,13 @@ function App() {
   const [chartData, setChartData] = useState(null)
   const [dbCategories, setDbCategories] = useState([])
   
+  // Новые стейты для Второго Мозга
+  const [ideas, setIdeas] = useState([])
+  const [scripts, setScripts] = useState([])
+  const [newIdeaText, setNewIdeaText] = useState('')
+  const [newScriptTitle, setNewScriptTitle] = useState('')
+  const [newScriptRules, setNewScriptRules] = useState('')
+  
   const [activeTab, setActiveTab] = useState('play')
   const [showLevelUpModal, setShowLevelUpModal] = useState(false)
   const [showCatLevelUpModal, setShowCatLevelUpModal] = useState(false)
@@ -66,13 +73,15 @@ function App() {
     try {
       await triggerDailySync();
 
-      const [profRes, questRes, catRes, rewRes, logsRes, chartRes] = await Promise.allSettled([
+      const [profRes, questRes, catRes, rewRes, logsRes, chartRes, ideasRes, scriptsRes] = await Promise.allSettled([
         axios.get(`${API_URL}/profile`),
         axios.get(`${API_URL}/quests`),
         axios.get(`${API_URL}/categories`),
         axios.get(`${API_URL}/rewards`),
         axios.get(`${API_URL}/logs`),
-        axios.get(`${API_URL}/analytics/categories`)
+        axios.get(`${API_URL}/analytics/categories`),
+        axios.get(`${API_URL}/ideas`),
+        axios.get(`${API_URL}/scripts`)
       ]);
 
       if (profRes.status === 'fulfilled') {
@@ -96,6 +105,8 @@ function App() {
       if (rewRes.status === 'fulfilled') setRewards(rewRes.value.data.rewards || []);
       if (logsRes.status === 'fulfilled') setLogs(logsRes.value.data.logs || []);
       if (chartRes.status === 'fulfilled') setChartData(chartRes.value.data);
+      if (ideasRes.status === 'fulfilled') setIdeas(ideasRes.value.data.ideas || []);
+      if (scriptsRes.status === 'fulfilled') setScripts(scriptsRes.value.data.scripts || []);
 
     } catch (error) { console.error("Sync error:", error) }
   }
@@ -104,7 +115,6 @@ function App() {
 
   const completeQuest = async (quest) => {
     const res = await axios.post(`${API_URL}/complete_quest`, { quest_id: quest.id });
-    
     if (res.data.level_up) {
       playRetroSound('levelup');
       setShowLevelUpModal(true);
@@ -129,6 +139,7 @@ function App() {
     if (res.data.status === "success") { playRetroSound('click'); fetchData(); }
   }
 
+  // --- Функции добавления ---
   const handleAddQuest = async (e) => {
     e.preventDefault(); if (!newTitle) return;
     const finalCategory = newCategory || (dbCategories.length > 0 ? dbCategories[0].name : "✨ Разное");
@@ -142,11 +153,7 @@ function App() {
 
   const handleAddReward = async (e) => {
     e.preventDefault(); if (!newRewardTitle) return;
-    await axios.post(`${API_URL}/add_reward`, { 
-      title: newRewardTitle, 
-      description: newRewardDesc, 
-      cost: Number(newRewardCost) 
-    });
+    await axios.post(`${API_URL}/add_reward`, { title: newRewardTitle, description: newRewardDesc, cost: Number(newRewardCost) });
     setNewRewardTitle(''); setNewRewardDesc(''); fetchData(); setActiveTab('shop');
   }
 
@@ -156,9 +163,24 @@ function App() {
     setNewCategoryInput(''); fetchData();
   }
 
+  const handleAddIdea = async (e) => {
+    e.preventDefault(); if (!newIdeaText) return;
+    await axios.post(`${API_URL}/add_idea`, { text: newIdeaText });
+    setNewIdeaText(''); fetchData();
+  }
+
+  const handleAddScript = async (e) => {
+    e.preventDefault(); if (!newScriptTitle) return;
+    await axios.post(`${API_URL}/add_script`, { title: newScriptTitle, rules: newScriptRules });
+    setNewScriptTitle(''); setNewScriptRules(''); fetchData();
+  }
+
+  // --- Функции удаления ---
   const handleDeleteQuest = async (id) => { await axios.delete(`${API_URL}/delete_quest/${id}`); fetchData(); }
   const handleDeleteReward = async (id) => { await axios.delete(`${API_URL}/delete_reward/${id}`); fetchData(); }
   const handleDeleteCategory = async (id) => { await axios.delete(`${API_URL}/delete_category/${id}`); fetchData(); }
+  const handleDeleteIdea = async (id) => { await axios.delete(`${API_URL}/delete_idea/${id}`); fetchData(); }
+  const handleDeleteScript = async (id) => { await axios.delete(`${API_URL}/delete_script/${id}`); fetchData(); }
 
   useEffect(() => {
     if (activeTab === 'analytics' && chartData?.labels?.length > 0) {
@@ -186,7 +208,7 @@ function App() {
 
   if (!profile) return (
     <div className="min-h-screen bg-[#020617] flex items-center justify-center text-teal-400/50 font-mono tracking-[0.3em] text-xs animate-pulse">
-      ПОДКЛЮЧЕНИЕ К НЕЙРОСЕТИ...
+      ЗАГРУЗКА ВТОРОГО МОЗГА...
     </div>
   )
 
@@ -202,13 +224,9 @@ function App() {
   };
 
   const activeQuestCategories = [...new Set(quests.map(q => q.category || '✨ Разное'))];
-
-  // ВЫЧИСЛЕНИЕ ДОСТУПНЫХ ПОДКАТЕГОРИЙ ДЛЯ КУЗНИЦЫ
   const currentCategoryForForge = newCategory || (dbCategories.length > 0 ? dbCategories[0].name : "✨ Разное");
   const availableSubcategories = [...new Set(
-    quests
-      .filter(q => (q.category || '✨ Разное') === currentCategoryForForge && q.subcategory)
-      .map(q => q.subcategory)
+    quests.filter(q => (q.category || '✨ Разное') === currentCategoryForForge && q.subcategory).map(q => q.subcategory)
   )];
 
   return (
@@ -240,16 +258,17 @@ function App() {
         </div>
       )}
 
-      <div className="w-full max-w-md bg-white/5 p-1.5 rounded-2xl border border-white/10 flex gap-1 mb-8 backdrop-blur-2xl sticky top-4 z-40 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
-        <button onClick={() => setActiveTab('play')} className={`flex-1 py-3 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'play' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>Квесты</button>
-        <button onClick={() => setActiveTab('shop')} className={`flex-1 py-3 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'shop' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>Магазин</button>
-        <button onClick={() => setActiveTab('forge')} className={`flex-1 py-3 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'forge' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>Кузница</button>
-        <button onClick={() => setActiveTab('analytics')} className={`flex-1 py-3 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'analytics' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'}`}>Аналитика</button>
+      {/* НОВАЯ НАВИГАЦИЯ (5 ВКЛАДОК) */}
+      <div className="w-full max-w-md bg-white/5 p-1.5 rounded-2xl border border-white/10 flex flex-wrap gap-1 mb-8 backdrop-blur-2xl sticky top-4 z-40 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] justify-center">
+        <button onClick={() => setActiveTab('play')} className={`flex-1 py-2 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'play' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white border border-transparent'}`}>Квесты</button>
+        <button onClick={() => setActiveTab('studio')} className={`flex-1 py-2 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'studio' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white border border-transparent'}`}>Студия</button>
+        <button onClick={() => setActiveTab('ideas')} className={`flex-1 py-2 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'ideas' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white border border-transparent'}`}>Идеи</button>
+        <button onClick={() => setActiveTab('shop')} className={`flex-1 py-2 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'shop' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white border border-transparent'}`}>Магазин</button>
+        <button onClick={() => setActiveTab('forge')} className={`flex-1 py-2 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'forge' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white border border-transparent'}`}>База</button>
       </div>
 
       {activeTab === 'play' && (
         <div className="w-full max-w-md relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
-          
           <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] relative overflow-hidden group mb-8">
             <div className="absolute -right-10 -top-10 w-40 h-40 bg-teal-500/20 rounded-full blur-3xl group-hover:bg-teal-400/30 transition-all duration-1000"></div>
             <div className="flex justify-between items-start relative z-10 mb-5">
@@ -293,16 +312,13 @@ function App() {
             {activeQuestCategories.map(category => {
               const catData = profile.category_levels?.[category] || { level: 1, percent: 0, is_maxed: false };
               const isDefaultOpen = category === '🔥 Дейлики' || category.toLowerCase().includes('дейлик');
-              
               const catQuests = getSortedQuests(category);
-              
               const groupedQuests = catQuests.reduce((acc, quest) => {
                 const sub = quest.subcategory || '';
                 if (!acc[sub]) acc[sub] = [];
                 acc[sub].push(quest);
                 return acc;
               }, {});
-
               const sortedSubcategories = Object.keys(groupedQuests).sort((a, b) => {
                 if (a === '') return -1;
                 if (b === '') return 1;
@@ -333,7 +349,7 @@ function App() {
 
                   <div className="px-5 pb-6 border-t border-white/5 pt-5 space-y-6">
                     {catQuests.length === 0 ? (
-                      <div className="text-center text-slate-500 text-xs py-4 font-light tracking-widest uppercase">Нет доступных задач</div>
+                      <div className="text-center text-slate-500 text-xs py-4 font-light tracking-widest uppercase">Нет задач</div>
                     ) : (
                       sortedSubcategories.map(sub => (
                         <div key={sub} className="space-y-3">
@@ -344,11 +360,9 @@ function App() {
                               <span className="h-px bg-white/10 flex-1"></span>
                             </div>
                           )}
-                          
                           {groupedQuests[sub].map((quest) => {
                             const parentQuest = quest.requires_id ? quests.find(q => q.id === quest.requires_id) : null;
                             const isLocked = parentQuest && !parentQuest.completed;
-                            
                             return (
                               <div key={quest.id} className={`p-5 rounded-2xl flex justify-between items-center transition-all duration-500 backdrop-blur-md ${quest.completed ? 'bg-white/5 border border-transparent opacity-40 grayscale' : isLocked ? 'bg-black/20 border border-white/5 opacity-50' : 'bg-white/10 border border-white/10 hover:bg-white/15 shadow-sm'}`}>
                                 <div className="pr-4 flex-1">
@@ -356,11 +370,9 @@ function App() {
                                     {isLocked && <span className="text-[9px] text-slate-400 bg-black/40 border border-white/5 px-2.5 py-1 rounded-full font-medium tracking-wide">🔒 Ждет: {parentQuest?.title || '...'}</span>}
                                     {quest.is_daily && <span className="text-[9px] text-teal-300 bg-teal-500/10 border border-teal-500/20 px-2.5 py-1 rounded-full font-medium tracking-wide">🔥 Дейлик</span>}
                                   </div>
-                                  
                                   <h3 className={`text-[15px] font-medium tracking-wide ${quest.completed ? 'text-slate-500 line-through' : isLocked ? 'text-slate-500' : 'text-slate-100'}`}>{quest.title}</h3>
                                   {quest.description && <p className="text-[11px] text-slate-400/80 mt-1 line-clamp-2 font-light">{quest.description}</p>}
                                 </div>
-                                
                                 <div className="flex flex-col items-end justify-center gap-2 min-w-[75px]">
                                   {!quest.completed && (
                                     <div className="text-[10px] font-medium flex gap-2 tracking-wide mb-0.5">
@@ -386,14 +398,72 @@ function App() {
         </div>
       )}
 
+      {/* НОВАЯ ВКЛАДКА: СТУДИЯ (СЦЕНАРИИ ФИЛЬМОВ) */}
+      {activeTab === 'studio' && (
+        <div className="w-full max-w-md space-y-6 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
+          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-[2rem] p-7 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
+            <h2 className="text-xl font-light text-white mb-2 tracking-wide flex items-center gap-2">🎬 Кино-Студия</h2>
+            <p className="text-[10px] text-slate-400 tracking-widest uppercase mb-6">Сценарии и правила для шоу</p>
+            
+            <form onSubmit={handleAddScript} className="space-y-3 mb-8">
+              <input type="text" placeholder="Фильм (Напр. 'Драйв')..." required value={newScriptTitle} onChange={(e) => setNewScriptTitle(e.target.value)} className="w-full bg-black/20 text-slate-200 rounded-xl px-5 py-4 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
+              <textarea placeholder="Правила на день (24 часа)..." required value={newScriptRules} onChange={(e) => setNewScriptRules(e.target.value)} className="w-full bg-black/20 text-slate-300 rounded-xl px-5 py-4 border border-white/10 text-xs min-h-[100px] focus:border-white/30 outline-none font-light custom-scrollbar" />
+              <button type="submit" className="w-full bg-purple-500/20 hover:bg-purple-500/40 text-purple-200 border border-purple-500/30 text-xs font-medium uppercase py-4 rounded-xl transition-all duration-300">Сохранить сценарий</button>
+            </form>
+
+            <div className="space-y-4 border-t border-white/10 pt-6">
+              {scripts.length === 0 ? (
+                <div className="text-center text-slate-500 text-xs py-4 font-light tracking-widest uppercase">Нет сценариев</div>
+              ) : (
+                scripts.map(script => (
+                  <div key={script.id} className="bg-black/30 border border-white/10 p-5 rounded-2xl group">
+                    <div className="flex justify-between items-start mb-2">
+                      <h3 className="text-sm font-medium text-purple-300 tracking-wide">{script.title}</h3>
+                      <button onClick={() => handleDeleteScript(script.id)} className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition-all">✖</button>
+                    </div>
+                    <p className="text-xs text-slate-300 font-light whitespace-pre-wrap leading-relaxed">{script.rules}</p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* НОВАЯ ВКЛАДКА: ИДЕИ (БЭКЛОГ) */}
+      {activeTab === 'ideas' && (
+        <div className="w-full max-w-md space-y-6 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
+          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-[2rem] p-7 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
+            <h2 className="text-xl font-light text-white mb-2 tracking-wide flex items-center gap-2">💡 Бэклог Идей</h2>
+            <p className="text-[10px] text-slate-400 tracking-widest uppercase mb-6">Треки, локации, мысли</p>
+            
+            <form onSubmit={handleAddIdea} className="flex gap-2 mb-8 border-b border-white/10 pb-6">
+              <input type="text" placeholder="Быстрая мысль..." required value={newIdeaText} onChange={(e) => setNewIdeaText(e.target.value)} className="flex-1 bg-black/20 text-teal-100 rounded-xl px-5 py-4 border border-teal-500/20 text-sm focus:border-teal-500/50 outline-none font-light placeholder:text-teal-800/50" />
+              <button type="submit" className="bg-teal-500/20 hover:bg-teal-500/40 text-teal-300 border border-teal-500/30 px-6 rounded-xl text-lg transition-all shadow-[0_0_15px_rgba(45,212,191,0.1)]">+</button>
+            </form>
+
+            <div className="space-y-3">
+              {ideas.length === 0 ? (
+                <div className="text-center text-slate-500 text-xs py-4 font-light tracking-widest uppercase">Бэклог пуст</div>
+              ) : (
+                ideas.map(idea => (
+                  <div key={idea.id} className="flex justify-between items-center bg-white/5 border border-white/5 p-4 rounded-xl hover:bg-white/10 transition-colors">
+                    <span className="text-xs text-slate-200 font-light pr-4">{idea.text}</span>
+                    <button onClick={() => handleDeleteIdea(idea.id)} className="text-[10px] font-medium text-slate-500 hover:text-red-400 bg-black/30 px-3 py-1.5 rounded-lg border border-white/5 transition-colors">Удалить</button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeTab === 'shop' && (
         <div className="w-full max-w-md space-y-8 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
-          
           <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-[2rem] p-10 text-center shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
             <p className="text-[10px] text-amber-300/60 font-medium mb-3 uppercase tracking-[0.2em]">Доступные средства</p>
             <h2 className="text-5xl font-light text-amber-300 drop-shadow-[0_0_15px_rgba(252,211,77,0.3)]">{profile.gold}</h2>
           </div>
-
           <div className="space-y-4">
             <h3 className="text-sm font-medium text-white px-2 tracking-wide">🎒 Мой Рюкзак</h3>
             <div className="grid grid-cols-2 gap-3">
@@ -409,7 +479,6 @@ function App() {
               )}
             </div>
           </div>
-
           <div className="space-y-4">
             <h3 className="text-sm font-medium text-white px-2 tracking-wide">🛒 Витрина Наград</h3>
             <div className="space-y-3">
@@ -430,7 +499,6 @@ function App() {
 
       {activeTab === 'forge' && (
         <div className="w-full max-w-md space-y-6 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
-          
           <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10">
             <h3 className="text-sm font-light text-white mb-6 tracking-wide">Новая инициатива</h3>
             <form onSubmit={handleAddQuest}>
@@ -438,7 +506,6 @@ function App() {
                 <input type="text" placeholder="Название..." required value={newTitle} onChange={(e) => setNewTitle(e.target.value)} className="w-full bg-black/20 text-slate-200 rounded-xl px-5 py-4 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
                 <textarea placeholder="Детали или шаги (опционально)" value={newDesc} onChange={(e) => setNewDesc(e.target.value)} className="w-full bg-black/20 text-slate-300 rounded-xl px-5 py-4 border border-white/10 text-xs min-h-[90px] focus:border-white/30 outline-none font-light custom-scrollbar" />
               </div>
-              
               <div className="flex gap-3 mb-2">
                 <select value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="w-1/2 bg-black/20 text-slate-300 rounded-xl px-4 py-3.5 border border-white/10 text-sm focus:border-white/30 outline-none appearance-none font-light">
                   {dbCategories.map(c => <option key={c.id} value={c.name} className="bg-slate-900">{c.name}</option>)}
@@ -446,25 +513,15 @@ function App() {
                 </select>
                 <input type="text" placeholder="Подкатегория (опция)" value={newSubcategory} onChange={(e) => setNewSubcategory(e.target.value)} className="w-1/2 bg-black/20 text-teal-300 rounded-xl px-4 py-3.5 border border-white/10 text-xs focus:border-white/30 outline-none font-light placeholder:text-slate-500" />
               </div>
-
-              {/* УМНЫЕ ТЕГИ ДЛЯ ПОДКАТЕГОРИЙ */}
               {availableSubcategories.length > 0 && (
                 <div className="flex flex-wrap items-center gap-1.5 mb-5 px-1">
                   <span className="text-[9px] text-slate-500 uppercase tracking-widest mr-1">Быстрый выбор:</span>
                   {availableSubcategories.map(sub => (
-                    <button 
-                      key={sub} 
-                      type="button" 
-                      onClick={() => setNewSubcategory(sub)} 
-                      className="text-[9px] bg-white/5 border border-white/10 px-2.5 py-1 rounded-md text-slate-300 hover:text-teal-300 hover:border-teal-500/30 transition-all font-medium"
-                    >
-                      {sub}
-                    </button>
+                    <button key={sub} type="button" onClick={() => setNewSubcategory(sub)} className="text-[9px] bg-white/5 border border-white/10 px-2.5 py-1 rounded-md text-slate-300 hover:text-teal-300 hover:border-teal-500/30 transition-all font-medium">{sub}</button>
                   ))}
                 </div>
               )}
               {availableSubcategories.length === 0 && <div className="mb-5"></div>}
-
               <div className="grid grid-cols-2 gap-4 mb-5">
                 <input type="number" placeholder="XP" required min="1" value={newXp} onChange={(e) => setNewXp(e.target.value)} className="w-full bg-black/20 text-teal-300 rounded-xl px-4 py-3.5 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
                 <input type="number" placeholder="Gold" required min="1" value={newGold} onChange={(e) => setNewGold(e.target.value)} className="w-full bg-black/20 text-amber-300 rounded-xl px-4 py-3.5 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
@@ -489,7 +546,6 @@ function App() {
               <input type="text" placeholder="Новый Путь..." required value={newCategoryInput} onChange={(e) => setNewCategoryInput(e.target.value)} className="flex-1 bg-black/20 text-slate-200 rounded-xl px-5 py-3.5 border border-white/10 text-xs focus:border-white/30 outline-none font-light" />
               <button type="submit" className="bg-white/10 hover:bg-white/20 border border-white/10 text-white px-6 rounded-xl text-sm font-light transition-colors">+</button>
             </form>
-
             <h3 className="text-sm font-light text-white mb-4 tracking-wide text-center border-t border-white/10 pt-6">Добавить Награду</h3>
             <form onSubmit={handleAddReward} className="flex flex-col gap-3">
               <div className="flex gap-3">
@@ -521,27 +577,15 @@ function App() {
               </div>
             </details>
           </div>
-        </div>
-      )}
-
-      {activeTab === 'analytics' && (
-        <div className="w-full max-w-md space-y-6 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
-          <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
-            <h2 className="text-sm font-light text-white mb-8 tracking-wide text-center">Распределение опыта</h2>
-            {chartData?.labels?.length > 0 ? (
-              <div className="relative w-full h-72"><canvas id="analyticsChart"></canvas></div>
-            ) : (<div className="text-center py-16 text-xs text-slate-500 font-light tracking-widest uppercase">Нет данных для анализа</div>)}
-          </div>
-
-          <div className="bg-white/5 backdrop-blur-md rounded-[2rem] p-7 border border-white/10 shadow-[0_4px_16px_0_rgba(0,0,0,0.1)]">
-              <h3 className="text-[10px] font-medium text-slate-500 uppercase tracking-widest mb-5">Журнал событий</h3>
-              <div className="space-y-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
-                {logs.map(log => (<div key={log.id} className="text-xs text-slate-400 border-l border-white/10 pl-4 py-1 font-light tracking-wide">{log.text}</div>))}
-              </div>
+          
+          <div className="bg-white/5 backdrop-blur-md rounded-[2rem] p-7 border border-white/10 mt-6">
+            <h3 className="text-[10px] font-medium text-slate-500 uppercase tracking-widest mb-5">Журнал событий</h3>
+            <div className="space-y-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
+              {logs.map(log => (<div key={log.id} className="text-xs text-slate-400 border-l border-white/10 pl-4 py-1 font-light tracking-wide">{log.text}</div>))}
             </div>
+          </div>
         </div>
       )}
-
     </div>
   )
 }
