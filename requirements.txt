@@ -3,3 +3,4 @@ uvicorn
 pydantic
 pymongo[srv]
 google-generativeai
+requests
