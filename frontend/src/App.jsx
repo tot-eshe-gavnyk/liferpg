@@ -20,7 +20,7 @@ function App() {
   const [newScriptRules, setNewScriptRules] = useState('')
   
   const [activeTab, setActiveTab] = useState('play') 
-  const [brainSubTab, setBrainSubTab] = useState('ideas') 
+  const [brainSubTab, setBrainSubTab] = useState('ideas') // ideas, scripts, chat
   const [forgeSubTab, setForgeSubTab] = useState('create') 
 
   const [showLevelUpModal, setShowLevelUpModal] = useState(false)
@@ -42,8 +42,13 @@ function App() {
   const [newRewardCost, setNewRewardCost] = useState(30)
   const [newCategoryInput, setNewCategoryInput] = useState('')
   
-  // Стейт загрузки для ИИ
+  // СТЕЙТЫ ИИ И ЧАТА
   const [isAiLoading, setIsAiLoading] = useState(false)
+  const [chatMessages, setChatMessages] = useState([
+    { role: 'model', text: 'Салют, Творец. Твой Кибер-Продюсер на связи. Матрицы синхронизированы, бэклог и лог событий у меня перед глазами. Какой проект сегодня штурмуем? Пиши сценарий, докрутим за секунду.' }
+  ])
+  const [chatInput, setChatInput] = useState('')
+  const [isChatLoading, setIsChatLoading] = useState(false)
 
   const triggerDailySync = async () => {
     try { await axios.post(`${API_URL}/sync_new_day`); } catch (e) { console.error("Sync error:", e) }
@@ -108,29 +113,53 @@ function App() {
 
   useEffect(() => { fetchData() }, [])
 
-  // 🔥 ОБНОВЛЕННАЯ ФУНКЦИЯ: Генерирует квест с учетом выбранной категории!
+  // ОТПРАВКА СООБЩЕНИЯ В КИБЕР-ЧАТ С ИИ
+  const handleSendChatMessage = async (e) => {
+    e.preventDefault();
+    if (!chatInput.trim() || isChatLoading) return;
+
+    const userMessage = chatInput.trim();
+    setChatInput('');
+    // Добавляем сообщение пользователя на экран мгновенно
+    const updatedHistory = [...chatMessages, { role: 'user', text: userMessage }];
+    setChatMessages(updatedHistory);
+    setIsChatLoading(true);
+    playRetroSound('click');
+
+    try {
+      // Отправляем всю историю + новое сообщение на сервер
+      const res = await axios.post(`${API_URL}/ai_chat`, {
+        history: chatMessages,
+        message: userMessage
+      });
+      
+      setChatMessages([...updatedHistory, { role: 'model', text: res.data.reply }]);
+      playRetroSound('coin');
+    } catch (error) {
+      const errMsg = error.response?.data?.detail || "Продюсер потерял связь с базой данных.";
+      alert(`❌ ${errMsg}`);
+    } finally {
+      setIsChatLoading(false);
+    }
+  }
+
   const handleGenerateAIQuest = async () => {
     setIsAiLoading(true);
     try {
-      // Определяем, какая категория сейчас выбрана в форме Кузницы
       const selectedCategory = newCategory || (dbCategories.length > 0 ? dbCategories[0].name : "✨ Разное");
-      
-      // Отправляем её параметром в GET-запрос
       const res = await axios.get(`${API_URL}/generate_ai_quest?category=${encodeURIComponent(selectedCategory)}`);
       const aiData = res.data.quest;
       
-      // Автозаполнение полей формы
       setNewTitle(aiData.title);
       setNewDesc(aiData.description);
       setNewXp(aiData.xp);
       setNewGold(aiData.gold);
-      setNewCategory(selectedCategory); // Сохраняем ту же категорию, под которую генерировали
+      setNewCategory(selectedCategory); 
       
       playRetroSound('levelup');
     } catch (error) {
       const errMsg = error.response?.data?.detail || "Ошибка связи с кибер-мозгом.";
       alert(`❌ ${errMsg}`);
-      console.error(error);
     } finally {
       setIsAiLoading(false);
     }
@@ -141,7 +170,7 @@ function App() {
     try {
       await axios.post(`${API_URL}/add_idea`, { text: newIdeaText });
       setNewIdeaText(''); fetchData(); playRetroSound('click');
-    } catch (error) { alert("❌ Сервер еще не обновился на Render!"); }
+    } catch (error) { alert("❌ Ошибка соединения!"); }
   }
 
   const handleAddScript = async (e) => {
@@ -149,7 +178,7 @@ function App() {
     try {
       await axios.post(`${API_URL}/add_script`, { title: newScriptTitle, rules: newScriptRules });
       setNewScriptTitle(''); setNewScriptRules(''); fetchData(); playRetroSound('levelup');
-    } catch (error) { alert("❌ Сервер еще не обновился на Render!"); }
+    } catch (error) { alert("❌ Ошибка соединения!"); }
   }
 
   const completeQuest = async (quest) => {
@@ -202,7 +231,7 @@ function App() {
     }
   }, [activeTab, forgeSubTab, chartData]);
 
-  if (!profile) return (<div className="min-h-screen bg-[#020617] flex items-center justify-center text-teal-400/50 font-mono tracking-[0.3em] text-xs animate-pulse">ЗАГРУЗКА ИНТЕРФЕЙСА...</div>)
+  if (!profile) return (<div className="min-h-screen bg-[#020617] flex items-center justify-center text-teal-400/50 font-mono tracking-[0.3em] text-xs animate-pulse">ИНИЦИАЛИЗАЦИЯ ИИ...</div>)
 
   const progressPercent = Math.min((profile.current_xp / xpToNext) * 100, 100)
   const hpPercent = Math.min((profile.hp / profile.max_hp) * 100, 100)
@@ -362,21 +391,22 @@ function App() {
         </div>
       )}
 
-      {/* ЭКРАН 2: ВТОРОЙ МОЗГ (СТУДИЯ / ИДЕИ) */}
+      {/* ЭКРАН 2: ВТОРОЙ МОЗГ (ТЕПЕРЬ С ЧАТОМ АССИСТЕНТА) */}
       {activeTab === 'brain' && (
         <div className="w-full max-w-md relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <h2 className="text-2xl font-light text-white mb-6 tracking-wide text-center mt-2">🧠 Второй Мозг</h2>
           
           <div className="flex bg-black/40 p-1 rounded-xl border border-white/10 mb-6">
-            <button onClick={() => setBrainSubTab('ideas')} className={`flex-1 py-2 rounded-lg text-xs font-medium tracking-widest uppercase transition-all ${brainSubTab === 'ideas' ? 'bg-white/15 text-teal-300 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>Бэклог</button>
-            <button onClick={() => setBrainSubTab('scripts')} className={`flex-1 py-2 rounded-lg text-xs font-medium tracking-widest uppercase transition-all ${brainSubTab === 'scripts' ? 'bg-white/15 text-purple-300 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>Сценарии</button>
+            <button onClick={() => setBrainSubTab('ideas')} className={`flex-1 py-2 rounded-lg text-[11px] font-medium tracking-widest uppercase transition-all ${brainSubTab === 'ideas' ? 'bg-white/15 text-teal-300 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>Бэклог</button>
+            <button onClick={() => setBrainSubTab('scripts')} className={`flex-1 py-2 rounded-lg text-[11px] font-medium tracking-widest uppercase transition-all ${brainSubTab === 'scripts' ? 'bg-white/15 text-purple-300 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>Сценарии</button>
+            <button onClick={() => setBrainSubTab('chat')} className={`flex-1 py-2 rounded-lg text-[11px] font-medium tracking-widest uppercase transition-all ${brainSubTab === 'chat' ? 'bg-white/15 text-amber-300 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>🤖 Чат</button>
           </div>
 
           {brainSubTab === 'ideas' && (
             <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-[2rem] p-7">
               <form onSubmit={handleAddIdea} className="flex gap-2 mb-8 border-b border-white/10 pb-6">
                 <input type="text" placeholder="Быстрая мысль..." required value={newIdeaText} onChange={(e) => setNewIdeaText(e.target.value)} className="flex-1 bg-black/20 text-teal-100 rounded-xl px-5 py-4 border border-teal-500/20 text-sm focus:border-teal-500/50 outline-none font-light placeholder:text-teal-800/50" />
-                <button type="submit" className="bg-teal-500/20 hover:bg-teal-500/40 text-teal-300 border border-teal-500/30 px-6 rounded-xl text-lg transition-all shadow-[0_0_15px_rgba(45,212,191,0.1)]">+</button>
+                <button type="submit" className="bg-teal-500/20 hover:bg-teal-500/40 text-teal-300 border border-teal-500/30 px-6 rounded-xl text-lg transition-all">+</button>
               </form>
               <div className="space-y-3">
                 {ideas.length === 0 ? <div className="text-center text-slate-500 text-xs py-4 font-light tracking-widest uppercase">Бэклог пуст</div> : 
@@ -411,6 +441,59 @@ function App() {
                   ))
                 }
               </div>
+            </div>
+          )}
+
+          {/* НОВЫЙ ИНТЕРФЕЙС КИБЕР-ЧАТА */}
+          {brainSubTab === 'chat' && (
+            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-[2rem] p-5 flex flex-col h-[65vh] relative overflow-hidden shadow-inner">
+              
+              {/* Лента сообщений */}
+              <div className="flex-1 overflow-y-auto space-y-4 pr-1 mb-4 custom-scrollbar flex flex-col pt-2">
+                {chatMessages.map((msg, idx) => (
+                  <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-in fade-in duration-300`}>
+                    <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-xs leading-relaxed font-light ${
+                      msg.role === 'user' 
+                        ? 'bg-gradient-to-br from-teal-500/20 to-teal-600/10 border border-teal-500/30 text-teal-100 rounded-br-none shadow-sm' 
+                        : 'bg-black/40 border border-white/5 text-slate-200 rounded-bl-none shadow-inner whitespace-pre-wrap'
+                    }`}>
+                      {msg.role !== 'user' && <span className="block text-[8px] uppercase tracking-wider font-bold text-amber-400 mb-1">Правая рука</span>}
+                      {msg.text}
+                    </div>
+                  </div>
+                ))}
+                {isChatLoading && (
+                  <div className="flex justify-start animate-pulse">
+                    <div className="bg-black/40 border border-white/5 text-amber-300/60 rounded-2xl rounded-bl-none px-4 py-3 text-[10px] font-mono tracking-widest uppercase">
+                      Продюсер пишет сценарий...
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Форма отправки */}
+              <form onSubmit={handleSendChatMessage} className="flex gap-2 bg-black/30 p-1.5 rounded-xl border border-white/10 backdrop-blur-md">
+                <input 
+                  type="text" 
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Прикажи или спроси..."
+                  disabled={isChatLoading}
+                  className="flex-1 bg-transparent text-slate-200 px-3 py-3 text-xs outline-none font-light placeholder:text-slate-600"
+                />
+                <button 
+                  type="submit" 
+                  disabled={!chatInput.trim() || isChatLoading}
+                  className={`px-5 rounded-lg text-xs font-bold uppercase tracking-widest transition-all ${
+                    chatInput.trim() && !isChatLoading
+                      ? 'bg-amber-400 text-black hover:bg-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.3)]' 
+                      : 'bg-white/5 text-slate-600 border border-white/5'
+                  }`}
+                >
+                  📡
+                </button>
+              </form>
+
             </div>
           )}
         </div>
@@ -473,7 +556,6 @@ function App() {
               <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10 relative overflow-hidden">
                 <h3 className="text-sm font-medium text-white mb-6 tracking-wide uppercase">Добавить Задачу</h3>
                 
-                {/* КНОПКА ГЕНЕРАЦИИ ИИ */}
                 <button 
                   onClick={handleGenerateAIQuest} 
                   disabled={isAiLoading}
