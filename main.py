@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pymongo import MongoClient
 from bson.objectid import ObjectId
-import google.generativeai as genai # Импорт ИИ
+import google.generativeai as genai
 
 # ==========================================
 # 1. ИНИЦИАЛИЗАЦИЯ ЯДРА И CORS
@@ -45,13 +45,12 @@ except Exception as e:
 try:
     if GEMINI_API_KEY:
         genai.configure(api_key=GEMINI_API_KEY)
-        # Устанавливаем актуальную модель поколения 2026 года
         ai_model = genai.GenerativeModel('gemini-3.5-flash')
         print("🧠 Нейросеть Gemini 3.5 успешно подключена!")
     else:
-        print("⚠️ GEMINI_API_KEY не найден в переменной окружения Render!")
+        print("⚠️ GEMINI_API_KEY не найден в переменных окружения!")
 except Exception as e:
-    print(f"⚠️ Ошибка инициализации ИИ: {e}")
+    print(f"⚠️ Ошибка ИИ: {e}")
 
 # ==========================================
 # 3. PYDANTIC МОДЕЛИ
@@ -89,6 +88,15 @@ class IdeaCreateInput(BaseModel):
 class ScriptCreateInput(BaseModel):
     title: str
     rules: str
+
+# Модели для нового Кибер-Чата
+class ChatMessageItem(BaseModel):
+    role: str  # 'user' или 'model'
+    text: str
+
+class ChatInput(BaseModel):
+    history: list[ChatMessageItem]
+    message: str
 
 # ==========================================
 # 4. МАТЕМАТИКА И ЯДРО ПРОФИЛЯ
@@ -128,26 +136,22 @@ def get_or_create_profile():
     return profile
 
 # ==========================================
-# 5. ЭНДПОИНТ ИИ: ТЕМАТИЧЕСКИЙ ГЕНЕРАТОР КВЕСТОВ
+# 5. ЭНДПОИНТЫ ИИ: КВЕСТЫ И КИБЕР-ЧАТ
 # ==========================================
 @app.get("/generate_ai_quest")
 def generate_ai_quest(category: str = "✨ Разное"):
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="API Ключ Gemini не настроен")
     try:
-        # Инструкция, затачивающая ИИ под твои реальные интересы
         prompt = f"""
         Ты — ИИ-Оракул для персонального приложения 'Жизнь как RPG'. Твоя задача — придумать ОДИН реалистичный, но круто стилизованный под RPG квест для парня.
-        
         Задание должно строго соответствовать выбранной категории: "{category}".
         
         Используй следующие контекстные рельсы для генерации в зависимости от темы:
-        1. Если тема связана с "Личным Брендом", блогингом или соцсетями: придумай задачу по съемке динамичного контента, Shorts/TikTok, необычный ракурс, монтаж под бит (например, эстетичный эдит), челлендж на харизму или работу со звуком/светом.
-        2. Если тема связана с "Проектами", кодом или учебой: сгенерируй квест на написание чистого кода, рефакторинг, проектирование архитектуры (Swift/SwiftUI/Python), интеграцию ИИ, отлов багов или оптимизацию БД.
-        3. Если тема связана с автомобилями, гаражом или DIY: придумай инженерную задачу, квест по кастомизации, обновлению подсветки, замене расходников, поиску редкой детали, наведению идеального порядка в инструментах или работе руками.
-        4. Если тема "Дейлики" или "Разное": челлендж по улучшению пространства вокруг (дизайн интерьера, мелкий ремонт, электрика, плитка), утренний ритуал продуктивности или микро-вызов для харизмы в реальном мире.
-        
-        Квест должен звучать дерзко, эпично и мотивирующе, как миссия из Cyberpunk 2077 или Кодекса Ассасинов, но оставаться на 100% выполнимым в реальности за один день.
+        1. Если тема "Личный Бренд", блогингом или соцсетями: придумай задачу по съемке Shorts/TikTok, необычный ракурс, монтаж под бит, челлендж на харизму или работу со звуком/светом.
+        2. Если тема "Проекты", кодом или учебой: сгенерируй квест на написание чистого кода, рефакторинг, проектирование архитектуры (Swift/SwiftUI/Python), интеграцию ИИ или отлов багов.
+        3. Если тема связана с автомобилями, гаражом или DIY: придумай инженерную задачу, кастомизацию, обновление подсветки, замену расходников, поиск редкой детали.
+        4. Если тема "Дейлики" или "Разное": челлендж по улучшению пространства вокруг (дизайн интерьера, мелкий ремонт, электрика, плитка) или микро-вызов для харизмы.
         
         Верни ответ строго по схеме JSON:
         {{
@@ -157,27 +161,67 @@ def generate_ai_quest(category: str = "✨ Разное"):
           "gold": случайное число от 25 до 75
         }}
         """
-        
-        response = ai_model.generate_content(
-            prompt,
-            generation_config={"response_mime_type": "application/json"}
-        )
-        
-        clean_text = response.text.strip()
-        print(f"📡 Сгенерирован тематический квест [{category}]: {clean_text}")
-        
-        quest_data = json.loads(clean_text)
-        return {"status": "success", "quest": quest_data}
-        
+        response = ai_model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
+        return {"status": "success", "quest": json.loads(response.text.strip())}
     except Exception as e:
-        error_msg = str(e)
-        print(f"⚠️ Ошибка ИИ: {error_msg}")
-        if "429" in error_msg or "quota" in error_msg.lower() or "resource_exhausted" in error_msg.lower():
+        if "429" in str(e) or "quota" in str(e).lower():
             raise HTTPException(status_code=429, detail="🧠 Оракул перезагружает матрицы. Подожди 15 секунд!")
         raise HTTPException(status_code=500, detail="🧩 Ошибка генерации. Попробуй еще раз.")
 
+@app.post("/ai_chat")
+def ai_chat(data: ChatInput):
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="API Ключ Gemini не настроен")
+    try:
+        # Собираем актуальный контекст из MongoDB
+        profile = get_or_create_profile()
+        active_quests = [q["title"] for q in quests_collection.find({"completed": False})]
+        latest_logs = [l["text"] for l in logs_collection.find().sort("_id", -1).limit(5)]
+        ideas_backlog = [i["text"] for i in ideas_collection.find().sort("_id", -1).limit(10)]
+        scripts_list = [s["title"] for s in scripts_collection.find().sort("_id", -1)]
+
+        # Формируем личность Правой Руки
+        system_instruction = f"""
+        Ты — Правая Рука, Кибер-Наставник и циничный, но гениальный Кинопродюсер Творца (парня-разработчика). 
+        Твоя цель — помочь ему дописать код, отснять разрывной контент для Ютуба, сделать ремонт, следить за его Volvo XC90 и держать железную дисциплину.
+        Общайся в ироничном, уверенном, харизматичном стиле. Используй кино-метафоры (съемочная площадка, сценарий, дубли, Драйв, Матрица).
+        Твои ответы должны быть относительно короткими, емкими, мотивирующими, без лишней "воды" и соплей.
+
+        ТЕКУЩИЙ СТАТУС ТВОРЦА:
+        - Уровень: {profile.get('level', 1)} | Золото: {profile.get('gold', 0)} | Здоровье (HP): {profile.get('hp', 100)}/100
+        - Ранг: {profile.get('rank', 'Новичок')} | Стрик идеальных дней: {profile.get('streak', 0)}
+        - Активные квесты в работе: {', '.join(active_quests) if active_quests else 'Нет активных задач. Ленящийся режиссер.'}
+        - Последние события из логов: {'; '.join(latest_logs) if latest_logs else 'Затишье на площадке.'}
+        - Бэклог идей для контента: {', '.join(ideas_backlog) if ideas_backlog else 'Пусто. Нужен брейншторм.'}
+        - Запущенные сценарии шоу: {', '.join(scripts_list) if scripts_list else 'Нет запущенных сценариев.'}
+
+        Отвечай на сообщение Творца с учетом этого контекста. Если он просит проанализировать идеи, предложить квест или докрутить сценарий — делай это четко и по-продюсерски.
+        """
+
+        # Конвертируем историю в формат Gemini
+        contents = []
+        for msg in data.history:
+            contents.append({
+                "role": "user" if msg.role == "user" else "model",
+                "parts": [msg.text]
+            })
+        
+        # Добавляем последнее сообщение
+        contents.append({"role": "user", "parts": [data.message]})
+
+        # Инициализируем модель с системными инструкциями
+        chat_model = genai.GenerativeModel('gemini-3.5-flash', system_instruction=system_instruction)
+        response = chat_model.generate_content(contents)
+        
+        return {"status": "success", "reply": response.text.strip()}
+    except Exception as e:
+        error_msg = str(e)
+        if "429" in error_msg or "quota" in error_msg.lower():
+            raise HTTPException(status_code=429, detail="🧠 Мозг перегружен. Подожди 15 секунд, продюсер думает над сценой!")
+        raise HTTPException(status_code=500, detail=f"Ошибка связи с ИИ: {error_msg}")
+
 # ==========================================
-# 6. ОСТАЛЬНЫЕ ЭНДПОИНТЫ ДВИЖКА
+# 6. ОСТАЛЬНЫЕ ЭНДПОИНТЫ (Без изменений)
 # ==========================================
 @app.post("/sync_new_day")
 def sync_new_day():
