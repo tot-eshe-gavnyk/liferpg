@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 import google.generativeai as genai
+import requests
 
 # ==========================================
 # 1. ИНИЦИАЛИЗАЦИЯ ЯДРА И CORS
@@ -172,14 +173,12 @@ def ai_chat(data: ChatInput):
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="API Ключ Gemini не настроен")
     try:
-        # Собираем актуальный контекст из MongoDB
         profile = get_or_create_profile()
         active_quests = [q["title"] for q in quests_collection.find({"completed": False})]
         latest_logs = [l["text"] for l in logs_collection.find().sort("_id", -1).limit(5)]
         ideas_backlog = [i["text"] for i in ideas_collection.find().sort("_id", -1).limit(10)]
         scripts_list = [s["title"] for s in scripts_collection.find().sort("_id", -1)]
 
-        # Формируем единый текстовый промпт (Паттерн "Плоский Чат")
         prompt = f"""
         Ты — N.O.X. (Novik Operational eXecutive), циничный, дерзкий и гениальный ИИ-ассистент Творца.
         Творец — это разработчик (Swift/Python), инженер-самоучка (чинит свой Volvo XC90, делает ремонт) и креатор (снимает кинематографичный лайфстайл).
@@ -197,18 +196,30 @@ def ai_chat(data: ChatInput):
         ХРОНОЛОГИЯ ДИАЛОГА:
         """
         
-        # Красиво упаковываем историю переписки прямо в текст промпта
         for msg in data.history:
             role_label = "Босс" if msg.role == "user" else "N.O.X."
             prompt += f"\n{role_label}: {msg.text}"
             
-        # Добавляем свежее сообщение Творца
         prompt += f"\nБосс: {data.message}\nN.O.X.:"
 
-        # Отправляем через стандартный метод generate_content
-        response = ai_model.generate_content(prompt)
+        # Raw HTTP Request to bypass AQ key bug
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GEMINI_API_KEY}"
+        headers = {'Content-Type': 'application/json'}
+        payload = {
+            "contents": [{"parts": [{"text": prompt}]}]
+        }
+
+        response = requests.post(url, headers=headers, json=payload)
+        response_data = response.json()
+
+        if response.status_code != 200:
+            error_msg = response_data.get("error", {}).get("message", "Unknown API error")
+            raise Exception(f"API Error {response.status_code}: {error_msg}")
+
+        reply_text = response_data['candidates'][0]['content']['parts'][0]['text']
         
-        return {"status": "success", "reply": response.text.strip()}
+        return {"status": "success", "reply": reply_text.strip()}
+
     except Exception as e:
         error_msg = str(e)
         print(f"⚠️ Ошибка N.O.X.: {error_msg}")
