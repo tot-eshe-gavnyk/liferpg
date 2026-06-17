@@ -45,7 +45,7 @@ except Exception as e:
 try:
     if GEMINI_API_KEY:
         genai.configure(api_key=GEMINI_API_KEY)
-        ai_model = genai.GenerativeModel('gemini-pro')
+        ai_model = genai.GenerativeModel('gemini-3.5-flash')
         print("🧠 Нейросеть Gemini успешно подключена!")
     else:
         print("⚠️ GEMINI_API_KEY не найден в переменных окружения!")
