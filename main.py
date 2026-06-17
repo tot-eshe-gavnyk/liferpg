@@ -183,42 +183,42 @@ def ai_chat(data: ChatInput):
         # Формируем личность Правой Руки
         system_instruction = f"""
         Ты — Правая Рука, Кибер-Наставник и циничный, но гениальный Кинопродюсер Творца (парня-разработчика). 
-        Твоя цель — помочь ему дописать код, отснять разрывной контент для Ютуба, сделать ремонт, следить за его Volvo XC90 и держать железную дисциплину.
-        Общайся в ироничном, уверенном, харизматичном стиле. Используй кино-метафоры (съемочная площадка, сценарий, дубли, Драйв, Матрица).
-        Твои ответы должны быть относительно короткими, емкими, мотивирующими, без лишней "воды" и соплей.
+        Ты помогаешь ему писать код, снимать контент для Ютуба, делать ремонт и следить за его Volvo XC90.
+        Общайся в ироничном, уверенном стиле. Используй кино-метафоры. Ответы делай емкими, без соплей.
 
         ТЕКУЩИЙ СТАТУС ТВОРЦА:
-        - Уровень: {profile.get('level', 1)} | Золото: {profile.get('gold', 0)} | Здоровье (HP): {profile.get('hp', 100)}/100
-        - Ранг: {profile.get('rank', 'Новичок')} | Стрик идеальных дней: {profile.get('streak', 0)}
-        - Активные квесты в работе: {', '.join(active_quests) if active_quests else 'Нет активных задач. Ленящийся режиссер.'}
-        - Последние события из логов: {'; '.join(latest_logs) if latest_logs else 'Затишье на площадке.'}
-        - Бэклог идей для контента: {', '.join(ideas_backlog) if ideas_backlog else 'Пусто. Нужен брейншторм.'}
-        - Запущенные сценарии шоу: {', '.join(scripts_list) if scripts_list else 'Нет запущенных сценариев.'}
-
-        Отвечай на сообщение Творца с учетом этого контекста. Если он просит проанализировать идеи, предложить квест или докрутить сценарий — делай это четко и по-продюсерски.
+        - Уровень: {profile.get('level', 1)} | Золото: {profile.get('gold', 0)} | HP: {profile.get('hp', 100)}/100
+        - Активные квесты: {', '.join(active_quests) if active_quests else 'Нет активных задач.'}
+        - Последние логи событий: {'; '.join(latest_logs) if latest_logs else 'Затишье.'}
+        - Бэклог идей: {', '.join(ideas_backlog) if ideas_backlog else 'Пусто.'}
+        - Сценарии шоу: {', '.join(scripts_list) if scripts_list else 'Нет сценариев.'}
         """
 
-        # Конвертируем историю в формат Gemini
+        # 🔥 ИСПРАВЛЕНИЕ: Очищаем историю, чтобы она соответствовала правилам Google
         contents = []
         for msg in data.history:
+            # Если история пустая, а сообщение от модели (наше приветствие) — пропускаем его
+            if not contents and msg.role == "model":
+                continue
             contents.append({
                 "role": "user" if msg.role == "user" else "model",
                 "parts": [msg.text]
             })
         
-        # Добавляем последнее сообщение
+        # Добавляем текущее сообщение пользователя
         contents.append({"role": "user", "parts": [data.message]})
 
-        # Инициализируем модель с системными инструкциями
+        # Отправляем чистую историю в модель
         chat_model = genai.GenerativeModel('gemini-3.5-flash', system_instruction=system_instruction)
         response = chat_model.generate_content(contents)
         
         return {"status": "success", "reply": response.text.strip()}
     except Exception as e:
         error_msg = str(e)
+        print(f"⚠️ Ошибка чата ИИ: {error_msg}")
         if "429" in error_msg or "quota" in error_msg.lower():
-            raise HTTPException(status_code=429, detail="🧠 Мозг перегружен. Подожди 15 секунд, продюсер думает над сценой!")
-        raise HTTPException(status_code=500, detail=f"Ошибка связи с ИИ: {error_msg}")
+            raise HTTPException(status_code=429, detail="🧠 Продюсер думает над сценой. Подожди 15 секунд!")
+        raise HTTPException(status_code=500, detail=f"Ошибка ИИ: {error_msg}")
 
 # ==========================================
 # 6. ОСТАЛЬНЫЕ ЭНДПОИНТЫ (Без изменений)
