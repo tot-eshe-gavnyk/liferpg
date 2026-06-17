@@ -108,11 +108,15 @@ function App() {
 
   useEffect(() => { fetchData() }, [])
 
-  // ФУНКЦИЯ: Генерация квеста через ИИ с умным выводом ошибок
+  // 🔥 ОБНОВЛЕННАЯ ФУНКЦИЯ: Генерирует квест с учетом выбранной категории!
   const handleGenerateAIQuest = async () => {
     setIsAiLoading(true);
     try {
-      const res = await axios.get(`${API_URL}/generate_ai_quest`);
+      // Определяем, какая категория сейчас выбрана в форме Кузницы
+      const selectedCategory = newCategory || (dbCategories.length > 0 ? dbCategories[0].name : "✨ Разное");
+      
+      // Отправляем её параметром в GET-запрос
+      const res = await axios.get(`${API_URL}/generate_ai_quest?category=${encodeURIComponent(selectedCategory)}`);
       const aiData = res.data.quest;
       
       // Автозаполнение полей формы
@@ -120,11 +124,10 @@ function App() {
       setNewDesc(aiData.description);
       setNewXp(aiData.xp);
       setNewGold(aiData.gold);
-      setNewCategory("🎬 Личный Бренд"); 
+      setNewCategory(selectedCategory); // Сохраняем ту же категорию, под которую генерировали
       
       playRetroSound('levelup');
     } catch (error) {
-      // Вытаскиваем точечное сообщение от нашего Python-сервера
       const errMsg = error.response?.data?.detail || "Ошибка связи с кибер-мозгом.";
       alert(`❌ ${errMsg}`);
       console.error(error);
