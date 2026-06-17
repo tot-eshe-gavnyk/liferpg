@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import axios from 'axios'
 
 const API_URL = 'https://liferpg-backend.onrender.com'
-// const API_URL = 'http://localhost:8000' // РАСКОММЕНТИРУЙ ЭТУ СТРОКУ, ЕСЛИ ТЕСТИРУЕШЬ ЛОКАЛЬНО БЕЗ ИНТЕРНЕТА
+// const API_URL = 'http://localhost:8000'
 
 function App() {
   const [profile, setProfile] = useState(null)
@@ -13,14 +13,17 @@ function App() {
   const [chartData, setChartData] = useState(null)
   const [dbCategories, setDbCategories] = useState([])
   
-  // ВТОРОЙ МОЗГ: Стейты
   const [ideas, setIdeas] = useState([])
   const [scripts, setScripts] = useState([])
   const [newIdeaText, setNewIdeaText] = useState('')
   const [newScriptTitle, setNewScriptTitle] = useState('')
   const [newScriptRules, setNewScriptRules] = useState('')
   
-  const [activeTab, setActiveTab] = useState('play')
+  // НОВАЯ СИСТЕМА НАВИГАЦИИ
+  const [activeTab, setActiveTab] = useState('play') // play, brain, shop, forge
+  const [brainSubTab, setBrainSubTab] = useState('ideas') // ideas, scripts
+  const [forgeSubTab, setForgeSubTab] = useState('create') // create, manage, logs
+
   const [showLevelUpModal, setShowLevelUpModal] = useState(false)
   const [showCatLevelUpModal, setShowCatLevelUpModal] = useState(false)
   const [newCatLevelData, setNewCatLevelData] = useState({ name: '', level: 1 })
@@ -50,7 +53,6 @@ function App() {
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain); gain.connect(ctx.destination);
-
       if (type === 'click') {
         osc.type = 'triangle'; osc.frequency.setValueAtTime(350, ctx.currentTime); osc.frequency.setValueAtTime(500, ctx.currentTime + 0.05);
         gain.gain.setValueAtTime(0.05, ctx.currentTime); gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
@@ -71,7 +73,6 @@ function App() {
   const fetchData = async () => {
     try {
       await triggerDailySync();
-
       const [profRes, questRes, catRes, rewRes, logsRes, chartRes, ideasRes, scriptsRes] = await Promise.allSettled([
         axios.get(`${API_URL}/profile`),
         axios.get(`${API_URL}/quests`),
@@ -89,34 +90,29 @@ function App() {
         setXpToNext(profRes.value.data.xp_to_next_level || pData.level * 100);
         setRank(pData.rank || '⚔️ Новичок');
       }
-
       if (catRes.status === 'fulfilled') {
         const loadedCats = catRes.value.data.categories || [];
         setDbCategories(loadedCats);
         if (!newCategory && loadedCats.length > 0) setNewCategory(loadedCats[0].name);
       }
-
       if (questRes.status === 'fulfilled') setQuests(questRes.value.data.quests || []);
       if (rewRes.status === 'fulfilled') setRewards(rewRes.value.data.rewards || []);
       if (logsRes.status === 'fulfilled') setLogs(logsRes.value.data.logs || []);
       if (chartRes.status === 'fulfilled') setChartData(chartRes.value.data);
-      
-      // ВТОРОЙ МОЗГ: Загрузка
       if (ideasRes.status === 'fulfilled') setIdeas(ideasRes.value.data.ideas || []);
       if (scriptsRes.status === 'fulfilled') setScripts(scriptsRes.value.data.scripts || []);
-
     } catch (error) { console.error("Sync error:", error) }
   }
 
   useEffect(() => { fetchData() }, [])
 
-  // --- ВТОРОЙ МОЗГ: Обработчики с защитой от ошибки сервера ---
+  // ОБРАБОТЧИКИ
   const handleAddIdea = async (e) => {
     e.preventDefault(); if (!newIdeaText) return;
     try {
       await axios.post(`${API_URL}/add_idea`, { text: newIdeaText });
       setNewIdeaText(''); fetchData(); playRetroSound('click');
-    } catch (error) { alert("❌ Сервер еще не обновился. Проверь, залил ли ты новый main.py на Render!"); }
+    } catch (error) { alert("❌ Сервер еще не обновился на Render!"); }
   }
 
   const handleAddScript = async (e) => {
@@ -124,21 +120,9 @@ function App() {
     try {
       await axios.post(`${API_URL}/add_script`, { title: newScriptTitle, rules: newScriptRules });
       setNewScriptTitle(''); setNewScriptRules(''); fetchData(); playRetroSound('levelup');
-    } catch (error) { alert("❌ Сервер еще не обновился. Проверь, залил ли ты новый main.py на Render!"); }
+    } catch (error) { alert("❌ Сервер еще не обновился на Render!"); }
   }
 
-  const turnIdeaIntoQuest = async (idea) => {
-    try {
-      await axios.post(`${API_URL}/add_quest`, {
-        title: idea.text, description: "💡 Сгенерировано из Бэклога Идей", xp: 25, gold: 20, 
-        category: "🎬 Личный Бренд", subcategory: "Сценарии", requires_id: "", is_daily: false
-      });
-      await axios.delete(`${API_URL}/delete_idea/${idea.id}`);
-      playRetroSound('coin'); fetchData(); setActiveTab('play');
-    } catch (error) { alert("Ошибка при переносе идеи!"); }
-  }
-
-  // --- СТАНДАРТНЫЕ ОБРАБОТЧИКИ ---
   const completeQuest = async (quest) => {
     const res = await axios.post(`${API_URL}/complete_quest`, { quest_id: quest.id });
     if (res.data.level_up) { playRetroSound('levelup'); setShowLevelUpModal(true); } 
@@ -159,10 +143,10 @@ function App() {
       category: finalCategory, subcategory: newSubcategory, requires_id: newRequiresId, is_daily: newIsDaily
     });
     setNewTitle(''); setNewDesc(''); setNewRequiresId(''); setNewIsDaily(false); setNewSubcategory('');
-    fetchData(); setActiveTab('play');
+    fetchData(); setForgeSubTab('manage'); setActiveTab('play');
   }
 
-  const handleAddReward = async (e) => { e.preventDefault(); if (!newRewardTitle) return; await axios.post(`${API_URL}/add_reward`, { title: newRewardTitle, description: newRewardDesc, cost: Number(newRewardCost) }); setNewRewardTitle(''); setNewRewardDesc(''); fetchData(); setActiveTab('shop'); }
+  const handleAddReward = async (e) => { e.preventDefault(); if (!newRewardTitle) return; await axios.post(`${API_URL}/add_reward`, { title: newRewardTitle, description: newRewardDesc, cost: Number(newRewardCost) }); setNewRewardTitle(''); setNewRewardDesc(''); fetchData(); }
   const handleAddCategory = async (e) => { e.preventDefault(); if (!newCategoryInput) return; await axios.post(`${API_URL}/add_category`, { name: newCategoryInput }); setNewCategoryInput(''); fetchData(); }
 
   const handleDeleteQuest = async (id) => { await axios.delete(`${API_URL}/delete_quest/${id}`); fetchData(); }
@@ -175,19 +159,21 @@ function App() {
   const useInventoryItem = async (title) => { const res = await axios.post(`${API_URL}/use_item`, { item_title: title }); if (res.data.status === "success") { playRetroSound('click'); fetchData(); } }
 
   useEffect(() => {
-    if (activeTab === 'analytics' && chartData?.labels?.length > 0) {
-      const ctx = document.getElementById('analyticsChart')?.getContext('2d');
-      if (!ctx) return;
-      if (window.currentLiferpgChart) window.currentLiferpgChart.destroy();
-      window.currentLiferpgChart = new window.Chart(ctx, {
-        type: 'doughnut',
-        data: { labels: chartData.labels, datasets: [{ data: chartData.xp_distribution, backgroundColor: ['#2dd4bf', '#a78bfa', '#fb923c', '#f43f5e', '#38bdf8', '#a3e635'], borderWidth: 0, hoverOffset: 8 }] },
-        options: { responsive: true, maintainAspectRatio: false, cutout: '82%', plugins: { legend: { position: 'bottom', labels: { color: '#e2e8f0', padding: 25, usePointStyle: true, font: { size: 12, family: 'system-ui' } } } } }
-      });
+    if (activeTab === 'forge' && forgeSubTab === 'logs' && chartData?.labels?.length > 0) {
+      setTimeout(() => {
+        const ctx = document.getElementById('analyticsChart')?.getContext('2d');
+        if (!ctx) return;
+        if (window.currentLiferpgChart) window.currentLiferpgChart.destroy();
+        window.currentLiferpgChart = new window.Chart(ctx, {
+          type: 'doughnut',
+          data: { labels: chartData.labels, datasets: [{ data: chartData.xp_distribution, backgroundColor: ['#2dd4bf', '#a78bfa', '#fb923c', '#f43f5e', '#38bdf8', '#a3e635'], borderWidth: 0, hoverOffset: 8 }] },
+          options: { responsive: true, maintainAspectRatio: false, cutout: '82%', plugins: { legend: { position: 'bottom', labels: { color: '#e2e8f0', padding: 25, usePointStyle: true, font: { size: 12, family: 'system-ui' } } } } }
+        });
+      }, 100);
     }
-  }, [activeTab, chartData]);
+  }, [activeTab, forgeSubTab, chartData]);
 
-  if (!profile) return (<div className="min-h-screen bg-[#020617] flex items-center justify-center text-teal-400/50 font-mono tracking-[0.3em] text-xs animate-pulse">ПОДКЛЮЧЕНИЕ СЕРВЕРА...</div>)
+  if (!profile) return (<div className="min-h-screen bg-[#020617] flex items-center justify-center text-teal-400/50 font-mono tracking-[0.3em] text-xs animate-pulse">ИНИЦИАЛИЗАЦИЯ ЯДРА...</div>)
 
   const progressPercent = Math.min((profile.current_xp / xpToNext) * 100, 100)
   const hpPercent = Math.min((profile.hp / profile.max_hp) * 100, 100)
@@ -197,15 +183,15 @@ function App() {
   const availableSubcategories = [...new Set(quests.filter(q => (q.category || '✨ Разное') === currentCategoryForForge && q.subcategory).map(q => q.subcategory))];
 
   return (
-    <div className="relative min-h-screen bg-[#040914] text-slate-200 flex flex-col items-center py-8 px-4 font-sans pb-28 overflow-x-hidden selection:bg-teal-500/30">
+    <div className="relative min-h-screen bg-[#040914] text-slate-200 flex flex-col items-center py-6 px-4 font-sans pb-28 overflow-x-hidden selection:bg-teal-500/30">
       
+      {/* ФОНОВЫЕ СВЕЧЕНИЯ */}
       <div className="fixed top-[-10%] left-[-15%] w-[60vw] h-[60vw] rounded-full bg-teal-600/10 blur-[120px] pointer-events-none mix-blend-screen"></div>
       <div className="fixed bottom-[-10%] right-[-15%] w-[60vw] h-[60vw] rounded-full bg-purple-600/10 blur-[120px] pointer-events-none mix-blend-screen"></div>
-      <div className="fixed top-[40%] right-[-10%] w-[40vw] h-[40vw] rounded-full bg-amber-600/5 blur-[100px] pointer-events-none mix-blend-screen"></div>
 
       {/* МОДАЛКИ */}
       {showLevelUpModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-50 p-4 transition-all duration-500">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-50 p-4">
           <div className="bg-white/10 border border-white/20 rounded-[2rem] p-10 max-w-sm w-full text-center shadow-[0_0_80px_rgba(45,212,191,0.2)] backdrop-blur-2xl">
             <div className="text-7xl mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.5)]">✨</div>
             <h2 className="text-3xl font-light text-white mb-2 tracking-wide">Новая Ступень</h2>
@@ -216,7 +202,7 @@ function App() {
       )}
 
       {showCatLevelUpModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-50 p-4 transition-all duration-500">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xl flex items-center justify-center z-50 p-4">
           <div className="bg-white/10 border border-white/20 rounded-[2rem] p-10 max-w-sm w-full text-center shadow-[0_0_80px_rgba(167,139,250,0.2)] backdrop-blur-2xl">
             <div className="text-7xl mb-6 drop-shadow-[0_0_25px_rgba(255,255,255,0.5)]">🔮</div>
             <h2 className="text-3xl font-light text-white mb-2 tracking-wide">Ветвь Развита</h2>
@@ -226,20 +212,10 @@ function App() {
         </div>
       )}
 
-      {/* МЕНЮ НАВИГАЦИИ (6 ВКЛАДОК) */}
-      <div className="w-full max-w-md bg-white/5 p-1.5 rounded-2xl border border-white/10 flex flex-wrap gap-1 mb-8 backdrop-blur-2xl sticky top-4 z-40 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] justify-center">
-        <button onClick={() => setActiveTab('play')} className={`flex-1 py-2 px-1 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'play' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white border border-transparent'}`}>Квесты</button>
-        <button onClick={() => setActiveTab('studio')} className={`flex-1 py-2 px-1 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'studio' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white border border-transparent'}`}>Студия</button>
-        <button onClick={() => setActiveTab('ideas')} className={`flex-1 py-2 px-1 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'ideas' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white border border-transparent'}`}>Идеи</button>
-        <button onClick={() => setActiveTab('shop')} className={`flex-1 py-2 px-1 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'shop' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white border border-transparent'}`}>Магазин</button>
-        <button onClick={() => setActiveTab('forge')} className={`flex-1 py-2 px-1 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'forge' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white border border-transparent'}`}>Кузница</button>
-        <button onClick={() => setActiveTab('analytics')} className={`flex-1 py-2 px-1 rounded-xl text-[10px] font-medium tracking-wide transition-all duration-300 ${activeTab === 'analytics' ? 'bg-white/15 text-white shadow-lg border border-white/10' : 'text-slate-400 hover:text-white border border-transparent'}`}>Логи</button>
-      </div>
-
       {/* ЭКРАН 1: КВЕСТЫ */}
       {activeTab === 'play' && (
-        <div className="w-full max-w-md relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
-          <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] relative overflow-hidden group mb-8">
+        <div className="w-full max-w-md relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] relative overflow-hidden group mb-8 mt-2">
             <div className="absolute -right-10 -top-10 w-40 h-40 bg-teal-500/20 rounded-full blur-3xl group-hover:bg-teal-400/30 transition-all duration-1000"></div>
             <div className="flex justify-between items-start relative z-10 mb-5">
               <div className="flex-1">
@@ -306,7 +282,6 @@ function App() {
                       </svg>
                     </div>
                   </summary>
-
                   <div className="px-5 pb-6 border-t border-white/5 pt-5 space-y-6">
                     {catQuests.length === 0 ? (
                       <div className="text-center text-slate-500 text-xs py-4 font-light tracking-widest uppercase">Нет задач</div>
@@ -358,14 +333,67 @@ function App() {
         </div>
       )}
 
-      {/* ЭКРАН 2: МАГАЗИН */}
+      {/* ЭКРАН 2: ВТОРОЙ МОЗГ (СТУДИЯ / ИДЕИ) */}
+      {activeTab === 'brain' && (
+        <div className="w-full max-w-md relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <h2 className="text-2xl font-light text-white mb-6 tracking-wide text-center mt-2">🧠 Второй Мозг</h2>
+          
+          <div className="flex bg-black/40 p-1 rounded-xl border border-white/10 mb-6">
+            <button onClick={() => setBrainSubTab('ideas')} className={`flex-1 py-2 rounded-lg text-xs font-medium tracking-widest uppercase transition-all ${brainSubTab === 'ideas' ? 'bg-white/15 text-teal-300 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>Бэклог</button>
+            <button onClick={() => setBrainSubTab('scripts')} className={`flex-1 py-2 rounded-lg text-xs font-medium tracking-widest uppercase transition-all ${brainSubTab === 'scripts' ? 'bg-white/15 text-purple-300 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>Сценарии</button>
+          </div>
+
+          {brainSubTab === 'ideas' && (
+            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-[2rem] p-7">
+              <form onSubmit={handleAddIdea} className="flex gap-2 mb-8 border-b border-white/10 pb-6">
+                <input type="text" placeholder="Быстрая мысль..." required value={newIdeaText} onChange={(e) => setNewIdeaText(e.target.value)} className="flex-1 bg-black/20 text-teal-100 rounded-xl px-5 py-4 border border-teal-500/20 text-sm focus:border-teal-500/50 outline-none font-light placeholder:text-teal-800/50" />
+                <button type="submit" className="bg-teal-500/20 hover:bg-teal-500/40 text-teal-300 border border-teal-500/30 px-6 rounded-xl text-lg transition-all">+</button>
+              </form>
+              <div className="space-y-3">
+                {ideas.length === 0 ? <div className="text-center text-slate-500 text-xs py-4 font-light tracking-widest uppercase">Бэклог пуст</div> : 
+                  ideas.map(idea => (
+                    <div key={idea.id} className="flex justify-between items-center bg-white/5 border border-white/5 p-4 rounded-xl hover:bg-white/10 transition-colors">
+                      <span className="text-xs text-slate-200 font-light pr-4">{idea.text}</span>
+                      <button onClick={() => handleDeleteIdea(idea.id)} className="text-[10px] font-medium text-slate-500 hover:text-red-400 bg-black/30 px-3 py-1.5 rounded-lg border border-white/5 transition-colors">Удалить</button>
+                    </div>
+                  ))
+                }
+              </div>
+            </div>
+          )}
+
+          {brainSubTab === 'scripts' && (
+            <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-[2rem] p-7">
+              <form onSubmit={handleAddScript} className="space-y-3 mb-8">
+                <input type="text" placeholder="Название шоу..." required value={newScriptTitle} onChange={(e) => setNewScriptTitle(e.target.value)} className="w-full bg-black/20 text-slate-200 rounded-xl px-5 py-4 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
+                <textarea placeholder="Правила на день (24 часа)..." required value={newScriptRules} onChange={(e) => setNewScriptRules(e.target.value)} className="w-full bg-black/20 text-slate-300 rounded-xl px-5 py-4 border border-white/10 text-xs min-h-[100px] focus:border-white/30 outline-none font-light custom-scrollbar" />
+                <button type="submit" className="w-full bg-purple-500/20 hover:bg-purple-500/40 text-purple-200 border border-purple-500/30 text-xs font-medium uppercase py-4 rounded-xl transition-all">Сохранить сценарий</button>
+              </form>
+              <div className="space-y-4 border-t border-white/10 pt-6">
+                {scripts.length === 0 ? <div className="text-center text-slate-500 text-xs py-4 font-light tracking-widest uppercase">Нет сценариев</div> : 
+                  scripts.map(script => (
+                    <div key={script.id} className="bg-black/30 border border-white/10 p-5 rounded-2xl relative overflow-hidden group">
+                      <div className="flex justify-between items-start mb-2">
+                        <h3 className="text-sm font-medium text-purple-300 tracking-wide">{script.title}</h3>
+                        <button onClick={() => handleDeleteScript(script.id)} className="text-[10px] text-slate-500 hover:text-red-400 transition-all">✖</button>
+                      </div>
+                      <p className="text-xs text-slate-300 font-light whitespace-pre-wrap leading-relaxed">{script.rules}</p>
+                    </div>
+                  ))
+                }
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ЭКРАН 3: МАГАЗИН */}
       {activeTab === 'shop' && (
-        <div className="w-full max-w-md space-y-8 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
-          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-[2rem] p-10 text-center shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
+        <div className="w-full max-w-md space-y-8 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-[2rem] p-10 text-center shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] mt-2">
             <p className="text-[10px] text-amber-300/60 font-medium mb-3 uppercase tracking-[0.2em]">Доступные средства</p>
             <h2 className="text-5xl font-light text-amber-300 drop-shadow-[0_0_15px_rgba(252,211,77,0.3)]">{profile.gold}</h2>
           </div>
-
           <div className="space-y-4">
             <h3 className="text-sm font-medium text-white px-2 tracking-wide">🎒 Мой Рюкзак</h3>
             <div className="grid grid-cols-2 gap-3">
@@ -376,12 +404,8 @@ function App() {
                   <button onClick={() => useInventoryItem(itemTitle)} className="bg-purple-500/20 hover:bg-purple-500/40 border border-purple-500/30 text-purple-100 text-[10px] py-1.5 px-4 rounded-xl transition-colors">Активировать</button>
                 </div>
               ))}
-              {Object.keys(profile.inventory || {}).length === 0 && (
-                <div className="col-span-2 text-center text-slate-600 text-xs py-6 font-light uppercase tracking-widest border border-dashed border-white/10 rounded-2xl">Рюкзак пуст</div>
-              )}
             </div>
           </div>
-
           <div className="space-y-4">
             <h3 className="text-sm font-medium text-white px-2 tracking-wide">🛒 Витрина Наград</h3>
             <div className="space-y-3">
@@ -400,176 +424,142 @@ function App() {
         </div>
       )}
 
-      {/* ЭКРАН 3: КУЗНИЦА (ПОЛНОСТЬЮ ВОССТАНОВЛЕНА) */}
+      {/* ЭКРАН 4: БАЗА (КУЗНИЦА / УПРАВЛЕНИЕ / ЛОГИ) */}
       {activeTab === 'forge' && (
-        <div className="w-full max-w-md space-y-6 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
-          
-          {/* Форма: Добавить Квест */}
-          <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10">
-            <h3 className="text-sm font-light text-white mb-6 tracking-wide">Создать Квест</h3>
-            <form onSubmit={handleAddQuest}>
-              <div className="space-y-4 mb-6">
-                <input type="text" placeholder="Название..." required value={newTitle} onChange={(e) => setNewTitle(e.target.value)} className="w-full bg-black/20 text-slate-200 rounded-xl px-5 py-4 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
-                <textarea placeholder="Детали или шаги (опционально)" value={newDesc} onChange={(e) => setNewDesc(e.target.value)} className="w-full bg-black/20 text-slate-300 rounded-xl px-5 py-4 border border-white/10 text-xs min-h-[90px] focus:border-white/30 outline-none font-light custom-scrollbar" />
-              </div>
-              <div className="flex gap-3 mb-2">
-                <select value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="w-1/2 bg-black/20 text-slate-300 rounded-xl px-4 py-3.5 border border-white/10 text-sm focus:border-white/30 outline-none appearance-none font-light">
-                  {dbCategories.map(c => <option key={c.id} value={c.name} className="bg-slate-900">{c.name}</option>)}
-                  {dbCategories.length === 0 && <option value="✨ Разное" className="bg-slate-900">✨ Разное</option>}
-                </select>
-                <input type="text" placeholder="Подкатегория (опция)" value={newSubcategory} onChange={(e) => setNewSubcategory(e.target.value)} className="w-1/2 bg-black/20 text-teal-300 rounded-xl px-4 py-3.5 border border-white/10 text-xs focus:border-white/30 outline-none font-light placeholder:text-slate-500" />
-              </div>
-              {availableSubcategories.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1.5 mb-5 px-1">
-                  <span className="text-[9px] text-slate-500 uppercase tracking-widest mr-1">Быстрый выбор:</span>
-                  {availableSubcategories.map(sub => (
-                    <button key={sub} type="button" onClick={() => setNewSubcategory(sub)} className="text-[9px] bg-white/5 border border-white/10 px-2.5 py-1 rounded-md text-slate-300 hover:text-teal-300 hover:border-teal-500/30 transition-all font-medium">{sub}</button>
-                  ))}
-                </div>
-              )}
-              {availableSubcategories.length === 0 && <div className="mb-5"></div>}
-              <div className="grid grid-cols-2 gap-4 mb-5">
-                <input type="number" placeholder="XP" required min="1" value={newXp} onChange={(e) => setNewXp(e.target.value)} className="w-full bg-black/20 text-teal-300 rounded-xl px-4 py-3.5 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
-                <input type="number" placeholder="Gold" required min="1" value={newGold} onChange={(e) => setNewGold(e.target.value)} className="w-full bg-black/20 text-amber-300 rounded-xl px-4 py-3.5 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
-              </div>
-              <div className="mb-6">
-                <select value={newRequiresId} onChange={(e) => setNewRequiresId(e.target.value)} className="w-full bg-black/20 text-slate-400 rounded-xl px-4 py-3.5 border border-white/10 text-xs focus:border-white/30 outline-none appearance-none font-light">
-                  <option value="" className="bg-slate-900">Без зависимости (Доступен сразу)</option>
-                  {quests.map(q => <option key={q.id} value={q.id} className="bg-slate-900">Ждать: {q.title}</option>)}
-                </select>
-              </div>
-              <label className="flex items-center gap-3 mb-8 p-4 rounded-xl bg-black/20 border border-white/5 cursor-pointer hover:bg-black/30 transition-colors">
-                <input type="checkbox" checked={newIsDaily} onChange={(e) => setNewIsDaily(e.target.checked)} className="w-4 h-4 rounded border-white/20 bg-black/50 text-teal-500 focus:ring-0" />
-                <span className="text-xs text-slate-300 font-light">Ежедневный респаун (Дейлик)</span>
-              </label>
-              <button type="submit" className="w-full bg-white/10 hover:bg-white text-white hover:text-black border border-white/20 text-xs font-medium uppercase py-4 rounded-xl transition-all duration-300 shadow-lg">Создать</button>
-            </form>
+        <div className="w-full max-w-md relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <h2 className="text-2xl font-light text-white mb-6 tracking-wide text-center mt-2">⚙️ Ядро Базы</h2>
+
+          <div className="flex bg-black/40 p-1 rounded-xl border border-white/10 mb-6">
+            <button onClick={() => setForgeSubTab('create')} className={`flex-1 py-2 rounded-lg text-[10px] font-medium tracking-widest uppercase transition-all ${forgeSubTab === 'create' ? 'bg-white/15 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>Создать</button>
+            <button onClick={() => setForgeSubTab('manage')} className={`flex-1 py-2 rounded-lg text-[10px] font-medium tracking-widest uppercase transition-all ${forgeSubTab === 'manage' ? 'bg-white/15 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>Управление</button>
+            <button onClick={() => setForgeSubTab('logs')} className={`flex-1 py-2 rounded-lg text-[10px] font-medium tracking-widest uppercase transition-all ${forgeSubTab === 'logs' ? 'bg-white/15 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>Аналитика</button>
           </div>
 
-          {/* Форма: Добавить Категорию и Награду */}
-          <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10">
-            <h3 className="text-sm font-light text-white mb-5 tracking-wide">Добавить Категорию (Путь)</h3>
-            <form onSubmit={handleAddCategory} className="flex gap-3 mb-8">
-              <input type="text" placeholder="Новый Путь..." required value={newCategoryInput} onChange={(e) => setNewCategoryInput(e.target.value)} className="flex-1 bg-black/20 text-slate-200 rounded-xl px-5 py-3.5 border border-white/10 text-xs focus:border-white/30 outline-none font-light" />
-              <button type="submit" className="bg-white/10 hover:bg-white/20 border border-white/10 text-white px-6 rounded-xl text-sm font-light transition-colors">+</button>
-            </form>
-
-            <h3 className="text-sm font-light text-white mb-4 tracking-wide text-center border-t border-white/10 pt-6">Добавить Награду в Магазин</h3>
-            <form onSubmit={handleAddReward} className="flex flex-col gap-3">
-              <div className="flex gap-3">
-                <input type="text" placeholder="Название награды..." required value={newRewardTitle} onChange={(e) => setNewRewardTitle(e.target.value)} className="flex-1 bg-black/20 text-slate-200 rounded-xl px-5 py-3.5 border border-white/10 text-xs focus:border-white/30 outline-none font-light" />
-                <input type="number" placeholder="Цена" required min="1" value={newRewardCost} onChange={(e) => setNewRewardCost(e.target.value)} className="w-24 bg-black/20 text-amber-300 rounded-xl px-4 py-3.5 border border-white/10 text-xs text-center outline-none font-light" />
-              </div>
-              <textarea placeholder="Опиши ценность и правила (опционально)..." value={newRewardDesc} onChange={(e) => setNewRewardDesc(e.target.value)} className="w-full bg-black/20 text-slate-300 rounded-xl px-5 py-3 border border-white/10 text-xs min-h-[60px] focus:border-white/30 outline-none font-light custom-scrollbar" />
-              <button type="submit" className="bg-white/10 hover:bg-white/20 border border-white/10 text-white py-3 rounded-xl text-xs font-light transition-colors w-full uppercase tracking-widest mt-2">Создать награду</button>
-            </form>
-          </div>
-
-          {/* УПРАВЛЕНИЕ БАЗОЙ (АККОРДЕОНЫ) */}
-          <div className="space-y-3">
-            <details className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl overflow-hidden group">
-              <summary className="px-6 py-5 text-[10px] font-medium text-slate-400 uppercase tracking-widest cursor-pointer select-none group-open:text-white group-open:bg-white/5 transition-colors">Управление задачами (Удаление)</summary>
-              <div className="px-6 pb-5 max-h-48 overflow-y-auto space-y-3 border-t border-white/10 pt-4 custom-scrollbar">
-                {quests.map(q => (<div key={q.id} className="flex justify-between items-center"><span className="text-xs text-slate-400 truncate pr-3 font-light">{q.title}</span><button onClick={() => handleDeleteQuest(q.id)} className="text-[10px] font-medium text-slate-500 hover:text-red-400 px-3 py-1.5 bg-black/30 rounded-lg border border-white/5 transition-colors">Удалить</button></div>))}
-              </div>
-            </details>
-            <details className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl overflow-hidden group">
-              <summary className="px-6 py-5 text-[10px] font-medium text-slate-400 uppercase tracking-widest cursor-pointer select-none group-open:text-white group-open:bg-white/5 transition-colors">Управление ветвями (Удаление)</summary>
-              <div className="px-6 pb-5 max-h-48 overflow-y-auto space-y-3 border-t border-white/10 pt-4 custom-scrollbar">
-                {dbCategories.map(c => (<div key={c.id} className="flex justify-between items-center"><span className="text-xs text-slate-400 truncate pr-3 font-light">{c.name}</span><button onClick={() => handleDeleteCategory(c.id)} className="text-[10px] font-medium text-slate-500 hover:text-red-400 px-3 py-1.5 bg-black/30 rounded-lg border border-white/5 transition-colors">Удалить</button></div>))}
-              </div>
-            </details>
-            <details className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl overflow-hidden group">
-              <summary className="px-6 py-5 text-[10px] font-medium text-slate-400 uppercase tracking-widest cursor-pointer select-none group-open:text-white group-open:bg-white/5 transition-colors">Управление магазином (Удаление)</summary>
-              <div className="px-6 pb-5 max-h-48 overflow-y-auto space-y-3 border-t border-white/10 pt-4 custom-scrollbar">
-                {rewards.map(r => (<div key={r.id} className="flex justify-between items-center"><span className="text-xs text-slate-400 truncate pr-3 font-light">{r.title}</span><button onClick={() => handleDeleteReward(r.id)} className="text-[10px] font-medium text-slate-500 hover:text-red-400 px-3 py-1.5 bg-black/30 rounded-lg border border-white/5 transition-colors">Удалить</button></div>))}
-              </div>
-            </details>
-          </div>
-        </div>
-      )}
-
-      {/* ЭКРАН 4: СТУДИЯ (СЦЕНАРИИ ФИЛЬМОВ) */}
-      {activeTab === 'studio' && (
-        <div className="w-full max-w-md space-y-6 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
-          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-[2rem] p-7 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
-            <h2 className="text-xl font-light text-white mb-2 tracking-wide flex items-center gap-2">🎬 Кино-Студия</h2>
-            <p className="text-[10px] text-slate-400 tracking-widest uppercase mb-6">Сценарии и правила для шоу</p>
-            
-            <form onSubmit={handleAddScript} className="space-y-3 mb-8">
-              <input type="text" placeholder="Фильм (Напр. 'Драйв')..." required value={newScriptTitle} onChange={(e) => setNewScriptTitle(e.target.value)} className="w-full bg-black/20 text-slate-200 rounded-xl px-5 py-4 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
-              <textarea placeholder="Правила на день (24 часа)..." required value={newScriptRules} onChange={(e) => setNewScriptRules(e.target.value)} className="w-full bg-black/20 text-slate-300 rounded-xl px-5 py-4 border border-white/10 text-xs min-h-[100px] focus:border-white/30 outline-none font-light custom-scrollbar" />
-              <button type="submit" className="w-full bg-purple-500/20 hover:bg-purple-500/40 text-purple-200 border border-purple-500/30 text-xs font-medium uppercase py-4 rounded-xl transition-all duration-300">Сохранить сценарий</button>
-            </form>
-
-            <div className="space-y-4 border-t border-white/10 pt-6">
-              {scripts.length === 0 ? (
-                <div className="text-center text-slate-500 text-xs py-4 font-light tracking-widest uppercase">Нет сценариев</div>
-              ) : (
-                scripts.map(script => (
-                  <div key={script.id} className="bg-black/30 border border-white/10 p-5 rounded-2xl group relative overflow-hidden">
-                    <div className="flex justify-between items-start mb-2 relative z-10">
-                      <h3 className="text-sm font-medium text-purple-300 tracking-wide">{script.title}</h3>
-                      <button onClick={() => handleDeleteScript(script.id)} className="text-[10px] bg-black/50 text-slate-400 px-2 py-1 rounded border border-white/10 hover:text-red-400 transition-all">✖</button>
-                    </div>
-                    <p className="text-xs text-slate-300 font-light whitespace-pre-wrap leading-relaxed relative z-10">{script.rules}</p>
+          {forgeSubTab === 'create' && (
+            <div className="space-y-6">
+              {/* ФОРМА 1: КВЕСТ */}
+              <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10">
+                <h3 className="text-sm font-medium text-white mb-6 tracking-wide uppercase">Добавить Задачу</h3>
+                <form onSubmit={handleAddQuest}>
+                  <div className="space-y-4 mb-6">
+                    <input type="text" placeholder="Название..." required value={newTitle} onChange={(e) => setNewTitle(e.target.value)} className="w-full bg-black/20 text-slate-200 rounded-xl px-5 py-4 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
+                    <textarea placeholder="Детали или шаги (опционально)" value={newDesc} onChange={(e) => setNewDesc(e.target.value)} className="w-full bg-black/20 text-slate-300 rounded-xl px-5 py-4 border border-white/10 text-xs min-h-[90px] focus:border-white/30 outline-none font-light custom-scrollbar" />
                   </div>
-                ))
-              )}
+                  <div className="flex gap-3 mb-2">
+                    <select value={newCategory} onChange={(e) => setNewCategory(e.target.value)} className="w-1/2 bg-black/20 text-slate-300 rounded-xl px-4 py-3.5 border border-white/10 text-sm focus:border-white/30 outline-none appearance-none font-light">
+                      {dbCategories.map(c => <option key={c.id} value={c.name} className="bg-slate-900">{c.name}</option>)}
+                      {dbCategories.length === 0 && <option value="✨ Разное" className="bg-slate-900">✨ Разное</option>}
+                    </select>
+                    <input type="text" placeholder="Подкатегория" value={newSubcategory} onChange={(e) => setNewSubcategory(e.target.value)} className="w-1/2 bg-black/20 text-teal-300 rounded-xl px-4 py-3.5 border border-white/10 text-xs outline-none font-light" />
+                  </div>
+                  {availableSubcategories.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 mb-5 px-1">
+                      <span className="text-[9px] text-slate-500 uppercase tracking-widest mr-1">Быстрый выбор:</span>
+                      {availableSubcategories.map(sub => (
+                        <button key={sub} type="button" onClick={() => setNewSubcategory(sub)} className="text-[9px] bg-white/5 border border-white/10 px-2.5 py-1 rounded-md text-slate-300 hover:text-teal-300 hover:border-teal-500/30 transition-all font-medium">{sub}</button>
+                      ))}
+                    </div>
+                  )}
+                  {availableSubcategories.length === 0 && <div className="mb-5"></div>}
+                  <div className="grid grid-cols-2 gap-4 mb-5">
+                    <input type="number" placeholder="XP" required min="1" value={newXp} onChange={(e) => setNewXp(e.target.value)} className="w-full bg-black/20 text-teal-300 rounded-xl px-4 py-3.5 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
+                    <input type="number" placeholder="Gold" required min="1" value={newGold} onChange={(e) => setNewGold(e.target.value)} className="w-full bg-black/20 text-amber-300 rounded-xl px-4 py-3.5 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
+                  </div>
+                  <div className="mb-6">
+                    <select value={newRequiresId} onChange={(e) => setNewRequiresId(e.target.value)} className="w-full bg-black/20 text-slate-400 rounded-xl px-4 py-3.5 border border-white/10 text-xs focus:border-white/30 outline-none appearance-none font-light">
+                      <option value="" className="bg-slate-900">Без зависимости (Доступен сразу)</option>
+                      {quests.map(q => <option key={q.id} value={q.id} className="bg-slate-900">Ждать: {q.title}</option>)}
+                    </select>
+                  </div>
+                  <label className="flex items-center gap-3 mb-8 p-4 rounded-xl bg-black/20 border border-white/5 cursor-pointer hover:bg-black/30 transition-colors">
+                    <input type="checkbox" checked={newIsDaily} onChange={(e) => setNewIsDaily(e.target.checked)} className="w-4 h-4 rounded border-white/20 bg-black/50 text-teal-500 focus:ring-0" />
+                    <span className="text-xs text-slate-300 font-light">Ежедневный респаун (Дейлик)</span>
+                  </label>
+                  <button type="submit" className="w-full bg-white/10 hover:bg-white text-white hover:text-black border border-white/20 text-xs font-medium uppercase py-4 rounded-xl transition-all shadow-lg">Создать квест</button>
+                </form>
+              </div>
+
+              {/* ФОРМА 2: КАТЕГОРИИ И НАГРАДЫ */}
+              <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10">
+                <h3 className="text-sm font-medium text-white mb-5 tracking-wide uppercase">Добавить Путь (Категорию)</h3>
+                <form onSubmit={handleAddCategory} className="flex gap-3 mb-8">
+                  <input type="text" placeholder="Новый Путь..." required value={newCategoryInput} onChange={(e) => setNewCategoryInput(e.target.value)} className="flex-1 bg-black/20 text-slate-200 rounded-xl px-5 py-3.5 border border-white/10 text-xs focus:border-white/30 outline-none font-light" />
+                  <button type="submit" className="bg-white/10 hover:bg-white/20 border border-white/10 text-white px-6 rounded-xl text-sm font-light transition-colors">+</button>
+                </form>
+                <h3 className="text-sm font-medium text-white mb-4 tracking-wide text-center border-t border-white/10 pt-6 uppercase">Добавить Награду в Магазин</h3>
+                <form onSubmit={handleAddReward} className="flex flex-col gap-3">
+                  <div className="flex gap-3">
+                    <input type="text" placeholder="Название награды..." required value={newRewardTitle} onChange={(e) => setNewRewardTitle(e.target.value)} className="flex-1 bg-black/20 text-slate-200 rounded-xl px-5 py-3.5 border border-white/10 text-xs focus:border-white/30 outline-none font-light" />
+                    <input type="number" placeholder="Цена" required min="1" value={newRewardCost} onChange={(e) => setNewRewardCost(e.target.value)} className="w-24 bg-black/20 text-amber-300 rounded-xl px-4 py-3.5 border border-white/10 text-xs text-center outline-none font-light" />
+                  </div>
+                  <textarea placeholder="Опиши ценность и правила..." value={newRewardDesc} onChange={(e) => setNewRewardDesc(e.target.value)} className="w-full bg-black/20 text-slate-300 rounded-xl px-5 py-3 border border-white/10 text-xs min-h-[60px] focus:border-white/30 outline-none font-light custom-scrollbar" />
+                  <button type="submit" className="bg-white/10 hover:bg-white/20 border border-white/10 text-white py-3 rounded-xl text-xs font-light transition-colors w-full uppercase tracking-widest mt-2">Добавить награду</button>
+                </form>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          )}
 
-      {/* ЭКРАН 5: ИДЕИ (БЭКЛОГ) */}
-      {activeTab === 'ideas' && (
-        <div className="w-full max-w-md space-y-6 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
-          <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-[2rem] p-7 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
-            <h2 className="text-xl font-light text-white mb-2 tracking-wide flex items-center gap-2">💡 Бэклог Идей</h2>
-            <p className="text-[10px] text-slate-400 tracking-widest uppercase mb-6">Треки, локации, мысли</p>
-            
-            <form onSubmit={handleAddIdea} className="flex gap-2 mb-8 border-b border-white/10 pb-6">
-              <input type="text" placeholder="Быстрая мысль..." required value={newIdeaText} onChange={(e) => setNewIdeaText(e.target.value)} className="flex-1 bg-black/20 text-teal-100 rounded-xl px-5 py-4 border border-teal-500/20 text-sm focus:border-teal-500/50 outline-none font-light placeholder:text-teal-800/50" />
-              <button type="submit" className="bg-teal-500/20 hover:bg-teal-500/40 text-teal-300 border border-teal-500/30 px-6 rounded-xl text-lg transition-all shadow-[0_0_15px_rgba(45,212,191,0.1)]">+</button>
-            </form>
-
+          {forgeSubTab === 'manage' && (
             <div className="space-y-3">
-              {ideas.length === 0 ? (
-                <div className="text-center text-slate-500 text-xs py-4 font-light tracking-widest uppercase">Бэклог пуст</div>
-              ) : (
-                ideas.map(idea => (
-                  <div key={idea.id} className="group relative flex flex-col justify-center bg-white/5 border border-white/5 p-4 rounded-xl hover:bg-white/10 transition-colors">
-                    <span className="text-xs text-slate-200 font-light mb-3">{idea.text}</span>
-                    <div className="flex gap-2 w-full">
-                      <button onClick={() => turnIdeaIntoQuest(idea)} className="flex-1 bg-teal-500/10 hover:bg-teal-500/20 text-teal-300 border border-teal-500/20 text-[10px] font-medium tracking-widest uppercase py-2 rounded-lg transition-colors">В Квест</button>
-                      <button onClick={() => handleDeleteIdea(idea.id)} className="bg-black/30 hover:bg-red-500/10 text-slate-500 hover:text-red-400 border border-white/5 text-[10px] px-4 rounded-lg transition-colors">✖</button>
-                    </div>
-                  </div>
-                ))
-              )}
+              <details className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl overflow-hidden group" open>
+                <summary className="px-6 py-5 text-[10px] font-medium text-slate-400 uppercase tracking-widest cursor-pointer select-none group-open:text-white group-open:bg-white/5 transition-colors">Удаление Задач</summary>
+                <div className="px-6 pb-5 max-h-60 overflow-y-auto space-y-3 border-t border-white/10 pt-4 custom-scrollbar">
+                  {quests.map(q => (<div key={q.id} className="flex justify-between items-center"><span className="text-xs text-slate-400 truncate pr-3 font-light">{q.title}</span><button onClick={() => handleDeleteQuest(q.id)} className="text-[10px] font-medium text-slate-500 hover:text-red-400 px-3 py-1.5 bg-black/30 rounded-lg border border-white/5 transition-colors">Удалить</button></div>))}
+                </div>
+              </details>
+              <details className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl overflow-hidden group">
+                <summary className="px-6 py-5 text-[10px] font-medium text-slate-400 uppercase tracking-widest cursor-pointer select-none group-open:text-white group-open:bg-white/5 transition-colors">Удаление Ветвей</summary>
+                <div className="px-6 pb-5 max-h-48 overflow-y-auto space-y-3 border-t border-white/10 pt-4 custom-scrollbar">
+                  {dbCategories.map(c => (<div key={c.id} className="flex justify-between items-center"><span className="text-xs text-slate-400 truncate pr-3 font-light">{c.name}</span><button onClick={() => handleDeleteCategory(c.id)} className="text-[10px] font-medium text-slate-500 hover:text-red-400 px-3 py-1.5 bg-black/30 rounded-lg border border-white/5 transition-colors">Удалить</button></div>))}
+                </div>
+              </details>
+              <details className="bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl overflow-hidden group">
+                <summary className="px-6 py-5 text-[10px] font-medium text-slate-400 uppercase tracking-widest cursor-pointer select-none group-open:text-white group-open:bg-white/5 transition-colors">Удаление из Магазина</summary>
+                <div className="px-6 pb-5 max-h-48 overflow-y-auto space-y-3 border-t border-white/10 pt-4 custom-scrollbar">
+                  {rewards.map(r => (<div key={r.id} className="flex justify-between items-center"><span className="text-xs text-slate-400 truncate pr-3 font-light">{r.title}</span><button onClick={() => handleDeleteReward(r.id)} className="text-[10px] font-medium text-slate-500 hover:text-red-400 px-3 py-1.5 bg-black/30 rounded-lg border border-white/5 transition-colors">Удалить</button></div>))}
+                </div>
+              </details>
             </div>
-          </div>
+          )}
+
+          {forgeSubTab === 'logs' && (
+            <div className="space-y-6">
+              <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
+                <h2 className="text-sm font-light text-white mb-8 tracking-wide text-center uppercase">Распределение опыта</h2>
+                {chartData?.labels?.length > 0 ? (
+                  <div className="relative w-full h-72"><canvas id="analyticsChart"></canvas></div>
+                ) : (<div className="text-center py-16 text-xs text-slate-500 font-light tracking-widest uppercase">Нет данных для анализа</div>)}
+              </div>
+              <div className="bg-white/5 backdrop-blur-md rounded-[2rem] p-7 border border-white/10">
+                <h3 className="text-[10px] font-medium text-slate-500 uppercase tracking-widest mb-5">Системный Журнал</h3>
+                <div className="space-y-3 max-h-80 overflow-y-auto pr-2 custom-scrollbar">
+                  {logs.map(log => (<div key={log.id} className="text-[11px] text-slate-400 border-l border-white/10 pl-4 py-1 font-light tracking-wide">{log.text}</div>))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* ЭКРАН 6: АНАЛИТИКА И ЛОГИ */}
-      {activeTab === 'analytics' && (
-        <div className="w-full max-w-md space-y-6 relative z-10 animate-in fade-in slide-in-from-bottom-4 duration-700">
-          <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)]">
-            <h2 className="text-sm font-light text-white mb-8 tracking-wide text-center">Распределение опыта</h2>
-            {chartData?.labels?.length > 0 ? (
-              <div className="relative w-full h-72"><canvas id="analyticsChart"></canvas></div>
-            ) : (<div className="text-center py-16 text-xs text-slate-500 font-light tracking-widest uppercase">Нет данных для анализа</div>)}
-          </div>
-
-          <div className="bg-white/5 backdrop-blur-md rounded-[2rem] p-7 border border-white/10 shadow-[0_4px_16px_0_rgba(0,0,0,0.1)]">
-            <h3 className="text-[10px] font-medium text-slate-500 uppercase tracking-widest mb-5">Журнал событий</h3>
-            <div className="space-y-3 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
-              {logs.map(log => (<div key={log.id} className="text-xs text-slate-400 border-l border-white/10 pl-4 py-1 font-light tracking-wide">{log.text}</div>))}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* НИЖНЯЯ ПАНЕЛЬ НАВИГАЦИИ (ПРИКРЕПЛЕНА К НИЗУ ЭКРАНА) */}
+      <nav className="fixed bottom-0 w-full max-w-md bg-[#040914]/80 backdrop-blur-2xl border-t border-white/10 z-50 px-6 py-4 flex justify-between items-center pb-safe">
+        <button onClick={() => setActiveTab('play')} className={`flex flex-col items-center gap-1.5 transition-all duration-300 w-16 ${activeTab === 'play' ? 'text-teal-400 scale-110 drop-shadow-[0_0_8px_rgba(45,212,191,0.5)]' : 'text-slate-500 hover:text-slate-300'}`}>
+          <span className="text-xl">⚔️</span>
+          <span className="text-[8px] font-bold tracking-widest uppercase">Квесты</span>
+        </button>
+        <button onClick={() => setActiveTab('brain')} className={`flex flex-col items-center gap-1.5 transition-all duration-300 w-16 ${activeTab === 'brain' ? 'text-purple-400 scale-110 drop-shadow-[0_0_8px_rgba(192,132,252,0.5)]' : 'text-slate-500 hover:text-slate-300'}`}>
+          <span className="text-xl">🧠</span>
+          <span className="text-[8px] font-bold tracking-widest uppercase">Идеи</span>
+        </button>
+        <button onClick={() => setActiveTab('shop')} className={`flex flex-col items-center gap-1.5 transition-all duration-300 w-16 ${activeTab === 'shop' ? 'text-amber-400 scale-110 drop-shadow-[0_0_8px_rgba(251,191,36,0.5)]' : 'text-slate-500 hover:text-slate-300'}`}>
+          <span className="text-xl">🛒</span>
+          <span className="text-[8px] font-bold tracking-widest uppercase">Магазин</span>
+        </button>
+        <button onClick={() => setActiveTab('forge')} className={`flex flex-col items-center gap-1.5 transition-all duration-300 w-16 ${activeTab === 'forge' ? 'text-slate-200 scale-110 drop-shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'text-slate-500 hover:text-slate-300'}`}>
+          <span className="text-xl">⚙️</span>
+          <span className="text-[8px] font-bold tracking-widest uppercase">База</span>
+        </button>
+      </nav>
 
     </div>
   )
