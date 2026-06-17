@@ -19,10 +19,9 @@ function App() {
   const [newScriptTitle, setNewScriptTitle] = useState('')
   const [newScriptRules, setNewScriptRules] = useState('')
   
-  // НОВАЯ СИСТЕМА НАВИГАЦИИ
-  const [activeTab, setActiveTab] = useState('play') // play, brain, shop, forge
-  const [brainSubTab, setBrainSubTab] = useState('ideas') // ideas, scripts
-  const [forgeSubTab, setForgeSubTab] = useState('create') // create, manage, logs
+  const [activeTab, setActiveTab] = useState('play') 
+  const [brainSubTab, setBrainSubTab] = useState('ideas') 
+  const [forgeSubTab, setForgeSubTab] = useState('create') 
 
   const [showLevelUpModal, setShowLevelUpModal] = useState(false)
   const [showCatLevelUpModal, setShowCatLevelUpModal] = useState(false)
@@ -42,6 +41,9 @@ function App() {
   const [newRewardDesc, setNewRewardDesc] = useState('')
   const [newRewardCost, setNewRewardCost] = useState(30)
   const [newCategoryInput, setNewCategoryInput] = useState('')
+  
+  // Стейт загрузки для ИИ
+  const [isAiLoading, setIsAiLoading] = useState(false)
 
   const triggerDailySync = async () => {
     try { await axios.post(`${API_URL}/sync_new_day`); } catch (e) { console.error("Sync error:", e) }
@@ -106,7 +108,29 @@ function App() {
 
   useEffect(() => { fetchData() }, [])
 
-  // ОБРАБОТЧИКИ
+  // 🔥 НОВАЯ ФУНКЦИЯ: Генерация квеста через ИИ
+  const handleGenerateAIQuest = async () => {
+    setIsAiLoading(true);
+    try {
+      const res = await axios.get(`${API_URL}/generate_ai_quest`);
+      const aiData = res.data.quest;
+      
+      // Автозаполнение полей в форме
+      setNewTitle(aiData.title);
+      setNewDesc(aiData.description);
+      setNewXp(aiData.xp);
+      setNewGold(aiData.gold);
+      setNewCategory("🎬 Личный Бренд"); 
+      
+      playRetroSound('levelup');
+    } catch (error) {
+      alert("❌ Ошибка генерации: проверь логи сервера!");
+      console.error(error);
+    } finally {
+      setIsAiLoading(false);
+    }
+  }
+
   const handleAddIdea = async (e) => {
     e.preventDefault(); if (!newIdeaText) return;
     try {
@@ -173,7 +197,7 @@ function App() {
     }
   }, [activeTab, forgeSubTab, chartData]);
 
-  if (!profile) return (<div className="min-h-screen bg-[#020617] flex items-center justify-center text-teal-400/50 font-mono tracking-[0.3em] text-xs animate-pulse">ИНИЦИАЛИЗАЦИЯ ЯДРА...</div>)
+  if (!profile) return (<div className="min-h-screen bg-[#020617] flex items-center justify-center text-teal-400/50 font-mono tracking-[0.3em] text-xs animate-pulse">ЗАГРУЗКА ИНТЕРФЕЙСА...</div>)
 
   const progressPercent = Math.min((profile.current_xp / xpToNext) * 100, 100)
   const hpPercent = Math.min((profile.hp / profile.max_hp) * 100, 100)
@@ -347,7 +371,7 @@ function App() {
             <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-[2rem] p-7">
               <form onSubmit={handleAddIdea} className="flex gap-2 mb-8 border-b border-white/10 pb-6">
                 <input type="text" placeholder="Быстрая мысль..." required value={newIdeaText} onChange={(e) => setNewIdeaText(e.target.value)} className="flex-1 bg-black/20 text-teal-100 rounded-xl px-5 py-4 border border-teal-500/20 text-sm focus:border-teal-500/50 outline-none font-light placeholder:text-teal-800/50" />
-                <button type="submit" className="bg-teal-500/20 hover:bg-teal-500/40 text-teal-300 border border-teal-500/30 px-6 rounded-xl text-lg transition-all">+</button>
+                <button type="submit" className="bg-teal-500/20 hover:bg-teal-500/40 text-teal-300 border border-teal-500/30 px-6 rounded-xl text-lg transition-all shadow-[0_0_15px_rgba(45,212,191,0.1)]">+</button>
               </form>
               <div className="space-y-3">
                 {ideas.length === 0 ? <div className="text-center text-slate-500 text-xs py-4 font-light tracking-widest uppercase">Бэклог пуст</div> : 
@@ -367,7 +391,7 @@ function App() {
               <form onSubmit={handleAddScript} className="space-y-3 mb-8">
                 <input type="text" placeholder="Название шоу..." required value={newScriptTitle} onChange={(e) => setNewScriptTitle(e.target.value)} className="w-full bg-black/20 text-slate-200 rounded-xl px-5 py-4 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
                 <textarea placeholder="Правила на день (24 часа)..." required value={newScriptRules} onChange={(e) => setNewScriptRules(e.target.value)} className="w-full bg-black/20 text-slate-300 rounded-xl px-5 py-4 border border-white/10 text-xs min-h-[100px] focus:border-white/30 outline-none font-light custom-scrollbar" />
-                <button type="submit" className="w-full bg-purple-500/20 hover:bg-purple-500/40 text-purple-200 border border-purple-500/30 text-xs font-medium uppercase py-4 rounded-xl transition-all">Сохранить сценарий</button>
+                <button type="submit" className="w-full bg-purple-500/20 hover:bg-purple-500/40 text-purple-200 border border-purple-500/30 text-xs font-medium uppercase py-4 rounded-xl transition-all duration-300">Сохранить сценарий</button>
               </form>
               <div className="space-y-4 border-t border-white/10 pt-6">
                 {scripts.length === 0 ? <div className="text-center text-slate-500 text-xs py-4 font-light tracking-widest uppercase">Нет сценариев</div> : 
@@ -404,6 +428,9 @@ function App() {
                   <button onClick={() => useInventoryItem(itemTitle)} className="bg-purple-500/20 hover:bg-purple-500/40 border border-purple-500/30 text-purple-100 text-[10px] py-1.5 px-4 rounded-xl transition-colors">Активировать</button>
                 </div>
               ))}
+              {Object.keys(profile.inventory || {}).length === 0 && (
+                <div className="col-span-2 text-center text-slate-600 text-xs py-6 font-light uppercase tracking-widest border border-dashed border-white/10 rounded-2xl">Рюкзак пуст</div>
+              )}
             </div>
           </div>
           <div className="space-y-4">
@@ -437,9 +464,19 @@ function App() {
 
           {forgeSubTab === 'create' && (
             <div className="space-y-6">
-              {/* ФОРМА 1: КВЕСТ */}
-              <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10">
+              {/* ФОРМА 1: КВЕСТ + ИИ */}
+              <div className="bg-white/5 backdrop-blur-xl rounded-[2rem] p-7 border border-white/10 relative overflow-hidden">
                 <h3 className="text-sm font-medium text-white mb-6 tracking-wide uppercase">Добавить Задачу</h3>
+                
+                {/* КНОПКА ГЕНЕРАЦИИ ИИ */}
+                <button 
+                  onClick={handleGenerateAIQuest} 
+                  disabled={isAiLoading}
+                  className="w-full mb-6 bg-gradient-to-r from-teal-500/20 to-purple-500/20 hover:from-teal-500/30 hover:to-purple-500/30 border border-teal-500/30 text-teal-100 text-xs font-bold uppercase tracking-widest py-4 rounded-xl transition-all shadow-[0_0_20px_rgba(45,212,191,0.1)] flex items-center justify-center gap-2"
+                >
+                  {isAiLoading ? 'Мозг думает...' : '✨ Сгенерировать ИИ-Квест'}
+                </button>
+
                 <form onSubmit={handleAddQuest}>
                   <div className="space-y-4 mb-6">
                     <input type="text" placeholder="Название..." required value={newTitle} onChange={(e) => setNewTitle(e.target.value)} className="w-full bg-black/20 text-slate-200 rounded-xl px-5 py-4 border border-white/10 text-sm focus:border-white/30 outline-none font-light" />
@@ -541,7 +578,7 @@ function App() {
         </div>
       )}
 
-      {/* НИЖНЯЯ ПАНЕЛЬ НАВИГАЦИИ (ПРИКРЕПЛЕНА К НИЗУ ЭКРАНА) */}
+      {/* НИЖНЯЯ ПАНЕЛЬ НАВИГАЦИИ */}
       <nav className="fixed bottom-0 w-full max-w-md bg-[#040914]/80 backdrop-blur-2xl border-t border-white/10 z-50 px-6 py-4 flex justify-between items-center pb-safe">
         <button onClick={() => setActiveTab('play')} className={`flex flex-col items-center gap-1.5 transition-all duration-300 w-16 ${activeTab === 'play' ? 'text-teal-400 scale-110 drop-shadow-[0_0_8px_rgba(45,212,191,0.5)]' : 'text-slate-500 hover:text-slate-300'}`}>
           <span className="text-xl">⚔️</span>
