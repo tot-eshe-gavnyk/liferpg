@@ -1,15 +1,17 @@
 import os
+import json
 from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pymongo import MongoClient
 from bson.objectid import ObjectId
+import google.generativeai as genai # ИМПОРТ ИИ
 
 # ==========================================
 # 1. ИНИЦИАЛИЗАЦИЯ ЯДРА И CORS
 # ==========================================
-app = FastAPI(title="LifeRPG Core Engine v9.0 - Full RPG Mechanics")
+app = FastAPI(title="LifeRPG Engine - Cyberbrain Edition")
 
 app.add_middleware(
     CORSMiddleware,
@@ -20,26 +22,35 @@ app.add_middleware(
 )
 
 # ==========================================
-# 2. ПОДКЛЮЧЕНИЕ К БАЗЕ ДАННЫХ MONGODB ATLAS
+# 2. ПОДКЛЮЧЕНИЕ К БАЗАМ ДАННЫХ И ИИ
 # ==========================================
 MONGO_URI = os.getenv("MONGO_URI")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 try:
     client = MongoClient(MONGO_URI)
     db = client["liferpg_cloud"]
-    
     profile_collection = db["game_data"]
     quests_collection = db["quests"]
     rewards_collection = db["rewards"]
     logs_collection = db["logs"]
     history_collection = db["history"] 
     categories_collection = db["categories"] 
-    bosses_collection = db["bosses"] 
-    
-    print("🚀 Успешно подключено к кластеру MongoDB Atlas!")
+    ideas_collection = db["ideas"]
+    scripts_collection = db["scripts"]
+    print("🚀 MongoDB подключена.")
 except Exception as e:
-    print(f"⚠️ Critical DB Error: {e}")
+    print(f"⚠️ Ошибка БД: {e}")
 
+try:
+    if GEMINI_API_KEY:
+        genai.configure(api_key=GEMINI_API_KEY)
+        ai_model = genai.GenerativeModel('gemini-1.5-flash')
+        print("🧠 Нейросеть Gemini успешно подключена!")
+    else:
+        print("⚠️ GEMINI_API_KEY не найден в переменных окружения!")
+except Exception as e:
+    print(f"⚠️ Ошибка ИИ: {e}")
 
 # ==========================================
 # 3. PYDANTIC МОДЕЛИ
@@ -50,7 +61,7 @@ class QuestCreateInput(BaseModel):
     xp: int = 15
     gold: int = 15
     category: str = "✨ Разное"
-    subcategory: str = ""  # <--- ПОДКАТЕГОРИЯ ТЕПЕРЬ ОФИЦИАЛЬНО ЗДЕСЬ
+    subcategory: str = ""  
     requires_id: str = ""  
     is_daily: bool = False 
 
@@ -68,16 +79,15 @@ class BuyRewardInput(BaseModel):
 class CategoryCreateInput(BaseModel):
     name: str 
 
-class BossCreateInput(BaseModel):
-    title: str
-    description: str = ""
-    max_hp: int = 1000
-    xp_reward: int = 500
-    gold_reward: int = 500
-
 class UseItemInput(BaseModel):
     item_title: str
 
+class IdeaCreateInput(BaseModel):
+    text: str
+
+class ScriptCreateInput(BaseModel):
+    title: str
+    rules: str
 
 # ==========================================
 # 4. МАТЕМАТИКА И ЯДРО ПРОФИЛЯ
@@ -99,62 +109,63 @@ def calculate_category_progress(xp: int):
 def get_or_create_profile():
     profile = profile_collection.find_one({"_id": "main_profile"})
     today_str = datetime.utcnow().strftime("%Y-%m-%d")
-    
     if not profile:
-        profile = {
-            "_id": "main_profile",
-            "name": "Творец",
-            "level": 1,
-            "current_xp": 0,
-            "gold": 0,
-            "rank": "⚔️ Новичок",
-            "streak": 0,
-            "stats": {},
-            "hp": 100,
-            "max_hp": 100,
-            "inventory": {},
-            "last_sync_date": today_str
-        }
+        profile = {"_id": "main_profile", "name": "Творец", "level": 1, "current_xp": 0, "gold": 0, "rank": "⚔️ Новичок", "streak": 0, "stats": {}, "hp": 100, "max_hp": 100, "inventory": {}, "last_sync_date": today_str}
         profile_collection.insert_one(profile)
-
     updates = {}
     if "hp" not in profile: updates["hp"] = 100
     if "max_hp" not in profile: updates["max_hp"] = 100
     if "inventory" not in profile: updates["inventory"] = {}
     if "last_sync_date" not in profile: updates["last_sync_date"] = today_str
-    
     expected_rank = get_rank_by_level(profile.get("level", 1))
     if profile.get("rank") != expected_rank: updates["rank"] = expected_rank
-    
     if updates:
         profile_collection.update_one({"_id": "main_profile"}, {"$set": updates})
         profile.update(updates)
-
     if categories_collection.count_documents({}) == 0:
         categories_collection.insert_many([{"name": "🔥 Дейлики"}, {"name": "📚 Проекты"}, {"name": "🎬 Личный Бренд"}])
-
     return profile
 
+# ==========================================
+# 5. ЭНДПОИНТ ИИ: ГЕНЕРАТОР КВЕСТОВ
+# ==========================================
+@app.get("/generate_ai_quest")
+def generate_ai_quest():
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="API Ключ Gemini не настроен")
+    try:
+        prompt = """
+        Ты — ИИ-Оракул для приложения 'Жизнь как RPG'. Придумай ОДИН креативный, интересный и немного безумный квест для реальной жизни парня. Это может быть челлендж для харизмы, инженерная задача, социальный вызов или крутая идея для съемки видео-блога в стиле кино.
+        
+        Верни ТОЛЬКО валидный JSON без какой-либо разметки markdown (без ```json), строго в таком формате:
+        {
+          "title": "Интригующее название квеста",
+          "description": "Подробное, дерзкое описание того, что именно нужно сделать в реальной жизни.",
+          "xp": случайное число от 30 до 100,
+          "gold": случайное число от 20 до 80
+        }
+        """
+        response = ai_model.generate_content(prompt)
+        # Очищаем ответ от маркдауна, если ИИ всё же его добавил
+        clean_text = response.text.replace("```json", "").replace("```", "").strip()
+        quest_data = json.loads(clean_text)
+        return {"status": "success", "quest": quest_data}
+    except Exception as e:
+        print(f"Ошибка ИИ: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ==========================================
-# 5. СИНХРОНИЗАЦИЯ НОВОГО ДНЯ (УРОН И СТРИКИ)
+# 6. ОСТАЛЬНЫЕ ЭНДПОИНТЫ (Стандартные)
 # ==========================================
 @app.post("/sync_new_day")
 def sync_new_day():
     profile = get_or_create_profile()
     today_str = datetime.utcnow().strftime("%Y-%m-%d")
-
-    if profile["last_sync_date"] == today_str:
-        return {"status": "already_synced"}
-
+    if profile["last_sync_date"] == today_str: return {"status": "already_synced"}
     dailies = list(quests_collection.find({"is_daily": True}))
     uncompleted_count = sum(1 for d in dailies if not d.get("completed", False))
-
-    new_hp = profile["hp"]
-    new_streak = profile["streak"]
-    new_gold = profile["gold"]
+    new_hp, new_streak, new_gold = profile["hp"], profile["streak"], profile["gold"]
     logs = []
-
     if len(dailies) > 0:
         if uncompleted_count > 0:
             damage = uncompleted_count * 20
@@ -164,41 +175,23 @@ def sync_new_day():
         else:
             new_streak += 1
             logs.append({"text": f"🔥 ИДЕАЛЬНЫЙ ДЕНЬ: Все дейлики закрыты! Стрик: {new_streak} дн.", "timestamp": datetime.utcnow()})
-
     if new_hp <= 0:
         penalty_gold = 50
         new_gold = max(0, new_gold - penalty_gold)
         new_hp = profile["max_hp"]
-        logs.append({"text": f"☠️ СИСТЕМНЫЙ СБОЙ: HP упало до нуля. Списано {penalty_gold} 💰. Здоровье восстановлено.", "timestamp": datetime.utcnow()})
-
-    profile_collection.update_one({"_id": "main_profile"}, {
-        "$set": {"hp": new_hp, "streak": new_streak, "gold": new_gold, "last_sync_date": today_str}
-    })
-    
+        logs.append({"text": f"☠️ СИСТЕМНЫЙ СБОЙ: HP упало до нуля. Списано {penalty_gold} 💰.", "timestamp": datetime.utcnow()})
+    profile_collection.update_one({"_id": "main_profile"}, {"$set": {"hp": new_hp, "streak": new_streak, "gold": new_gold, "last_sync_date": today_str}})
     quests_collection.update_many({"is_daily": True}, {"$set": {"completed": False}})
     if logs: logs_collection.insert_many(logs)
-
     return {"status": "synced"}
 
-
-# ==========================================
-# 6. ЭНДПОИНТЫ: ПРОФИЛЬ И АНАЛИТИКА
-# ==========================================
 @app.get("/profile")
 def get_profile():
     profile = get_or_create_profile()
     raw_stats = profile.get("stats", {})
     enhanced_stats = {cat: {"total_xp": xp, **calculate_category_progress(xp)} for cat, xp in raw_stats.items()}
-    
     multiplier = 1.0 + (min(profile.get("streak", 0), 10) * 0.05)
-    
-    return {
-        "profile": profile,
-        "xp_to_next_level": profile["level"] * 100,
-        "rank": profile.get("rank", "⚔️ Новичок"),
-        "category_levels": enhanced_stats,
-        "current_multiplier": multiplier
-    }
+    return {"profile": profile, "xp_to_next_level": profile["level"] * 100, "rank": profile.get("rank", "⚔️ Новичок"), "category_levels": enhanced_stats, "current_multiplier": multiplier}
 
 @app.get("/categories")
 def get_categories():
@@ -224,10 +217,6 @@ def get_category_stats():
     db_results = list(history_collection.aggregate(pipeline))
     return {"labels": [r["_id"] or "✨ Разное" for r in db_results], "xp_distribution": [r["total_xp"] for r in db_results]}
 
-
-# ==========================================
-# 7. ЭНДПОИНТЫ: КВЕСТЫ (С БОССАМИ И МНОЖИТЕЛЯМИ)
-# ==========================================
 @app.get("/quests")
 def get_quests():
     active_quests = [{"id": str(q.pop("_id")), **q} for q in quests_collection.find()]
@@ -246,77 +235,48 @@ def add_quest(quest: QuestCreateInput):
 def complete_quest(data: CompleteQuestInput):
     try: obj_id = ObjectId(data.quest_id)
     except: raise HTTPException(status_code=400)
-        
     quest = quests_collection.find_one({"_id": obj_id})
     if not quest or quest.get("completed"): return {"status": "error"}
-
     quests_collection.update_one({"_id": obj_id}, {"$set": {"completed": True}})
     profile = get_or_create_profile()
-    
     streak = profile.get("streak", 0)
     multiplier = 1.0 + (min(streak, 10) * 0.05)
-    
     base_xp = quest.get("xp", 15)
     base_gold = quest.get("gold", 15)
-    
     xp_gain = int(base_xp * multiplier)
     gold_gain = int(base_gold * multiplier)
     category = quest.get("category", "✨ Разное")
-
-    boss_defeated = False
-    active_boss = bosses_collection.find_one({"is_defeated": False})
-    if active_boss:
-        new_boss_hp = active_boss["current_hp"] - xp_gain
-        if new_boss_hp <= 0:
-            boss_defeated = True
-            bosses_collection.update_one({"_id": active_boss["_id"]}, {"$set": {"current_hp": 0, "is_defeated": True}})
-            xp_gain += active_boss["xp_reward"]
-            gold_gain += active_boss["gold_reward"]
-            logs_collection.insert_one({"text": f"🗡️ БОСС ПОВЕРЖЕН: {active_boss['title']}! Выбито +{active_boss['xp_reward']} XP и +{active_boss['gold_reward']} 💰", "timestamp": datetime.utcnow()})
-        else:
-            bosses_collection.update_one({"_id": active_boss["_id"]}, {"$set": {"current_hp": new_boss_hp}})
-
     stats = profile.get("stats", {})
     old_cat_xp = stats.get(category, 0)
     stats[category] = old_cat_xp + xp_gain
     cat_level_up = (min(((old_cat_xp + xp_gain) // 100) + 1, 10)) > ((old_cat_xp // 100) + 1)
-
     new_xp = profile["current_xp"] + xp_gain
     new_level = profile["level"]
     level_up = False
-
     while new_xp >= (new_level * 100):
         new_xp -= (new_level * 100)
         new_level += 1
         level_up = True
-
     profile_collection.update_one({"_id": "main_profile"}, {"$set": {
         "level": new_level, "current_xp": new_xp, "gold": profile["gold"] + gold_gain, 
         "stats": stats, "rank": get_rank_by_level(new_level)
     }})
-
     history_collection.insert_one({"action_type": "quest_completed", "category": category, "title": quest["title"], "xp_gained": xp_gain, "gold_earned": gold_gain, "timestamp": datetime.utcnow()})
-    logs_collection.insert_one({"text": f"✓ {quest['title']} (+{xp_gain} XP, +{gold_gain} 💰) [x{multiplier:.2f}]", "timestamp": datetime.utcnow()})
-
-    return {"status": "success", "level_up": level_up, "cat_level_up": cat_level_up, "boss_defeated": boss_defeated}
+    logs_collection.insert_one({"text": f"✓ {quest['title']} (+{xp_gain} XP) [x{multiplier:.2f}]", "timestamp": datetime.utcnow()})
+    return {"status": "success", "level_up": level_up, "cat_level_up": cat_level_up}
 
 @app.delete("/delete_quest/{id}")
 def delete_quest(id: str):
     quests_collection.delete_one({"_id": ObjectId(id)})
     return {"status": "success"}
 
-
-# ==========================================
-# 8. ЭНДПОИНТЫ: МАГАЗИН И ИНВЕНТАРЬ
-# ==========================================
 @app.get("/rewards")
 def get_rewards():
     return {"rewards": [{"id": str(r.pop("_id")), **r} for r in rewards_collection.find()]}
 
 @app.post("/add_reward")
 def add_reward(reward: RewardCreateInput):
-    new_reward = reward.dict()
-    rewards_collection.insert_one(new_reward)
+    rewards_collection.insert_one(reward.dict())
     return {"status": "success"}
 
 @app.post("/buy_reward")
@@ -325,15 +285,12 @@ def buy_reward(data: BuyRewardInput):
     except: raise HTTPException(status_code=400)
     reward = rewards_collection.find_one({"_id": obj_id})
     profile = get_or_create_profile()
-    
     if not reward or profile["gold"] < reward["cost"]: raise HTTPException(status_code=400)
-
     inventory = profile.get("inventory", {})
     item_title = reward["title"]
     inventory[item_title] = inventory.get(item_title, 0) + 1
-
     profile_collection.update_one({"_id": "main_profile"}, {"$inc": {"gold": -reward["cost"]}, "$set": {"inventory": inventory}})
-    logs_collection.insert_one({"text": f"🛒 Куплено: {item_title} (помещено в инвентарь)", "timestamp": datetime.utcnow()})
+    logs_collection.insert_one({"text": f"🛒 Куплено: {item_title}", "timestamp": datetime.utcnow()})
     return {"status": "success"}
 
 @app.post("/use_item")
@@ -341,7 +298,6 @@ def use_item(data: UseItemInput):
     profile = get_or_create_profile()
     inventory = profile.get("inventory", {})
     title = data.item_title
-
     if inventory.get(title, 0) > 0:
         inventory[title] -= 1
         if inventory[title] <= 0: del inventory[title]
@@ -355,36 +311,34 @@ def delete_reward(id: str):
     rewards_collection.delete_one({"_id": ObjectId(id)})
     return {"status": "success"}
 
+@app.get("/ideas")
+def get_ideas():
+    return {"ideas": [{"id": str(i.pop("_id")), **i} for i in ideas_collection.find().sort("_id", -1)]}
 
-# ==========================================
-# 9. ЭНДПОИНТЫ: БОССЫ
-# ==========================================
-@app.get("/bosses")
-def get_bosses():
-    return {"bosses": [{"id": str(b.pop("_id")), **b} for b in bosses_collection.find()]}
+@app.post("/add_idea")
+def add_idea(idea: IdeaCreateInput):
+    res = ideas_collection.insert_one({"text": idea.text, "timestamp": datetime.utcnow()})
+    return {"status": "success", "id": str(res.inserted_id)}
 
-@app.post("/add_boss")
-def add_boss(boss: BossCreateInput):
-    new_boss = boss.dict()
-    new_boss["current_hp"] = new_boss["max_hp"]
-    new_boss["is_defeated"] = False
-    
-    bosses_collection.update_many({"is_defeated": False}, {"$set": {"is_defeated": True}})
-    
-    res = bosses_collection.insert_one(new_boss)
-    new_boss["id"] = str(res.inserted_id)
-    del new_boss["_id"]
-    return new_boss
-
-@app.delete("/delete_boss/{id}")
-def delete_boss(id: str):
-    bosses_collection.delete_one({"_id": ObjectId(id)})
+@app.delete("/delete_idea/{id}")
+def delete_idea(id: str):
+    ideas_collection.delete_one({"_id": ObjectId(id)})
     return {"status": "success"}
 
+@app.get("/scripts")
+def get_scripts():
+    return {"scripts": [{"id": str(s.pop("_id")), **s} for s in scripts_collection.find().sort("_id", -1)]}
 
-# ==========================================
-# 10. ЭНДПОИНТЫ: ЛОГИ
-# ==========================================
+@app.post("/add_script")
+def add_script(script: ScriptCreateInput):
+    res = scripts_collection.insert_one(script.dict())
+    return {"status": "success", "id": str(res.inserted_id)}
+
+@app.delete("/delete_script/{id}")
+def delete_script(id: str):
+    scripts_collection.delete_one({"_id": ObjectId(id)})
+    return {"status": "success"}
+
 @app.get("/logs")
 def get_logs():
     return {"logs": [{"id": str(l.pop("_id")), **l} for l in logs_collection.find({}, {"timestamp": 0}).sort("_id", -1).limit(40)]}
