@@ -45,7 +45,7 @@ function App() {
   // СТЕЙТЫ ИИ И ЧАТА
   const [isAiLoading, setIsAiLoading] = useState(false)
   const [chatMessages, setChatMessages] = useState([
-    { role: 'model', text: 'Системы в норме, сэр. J.A.R.V.I.S. на связи. Протоколы базы данных синхронизированы. Чем могу служить сегодня?' }
+    { role: 'model', text: 'Ядро запущено. N.O.X. на связи. Логи прочитал, бэклог вижу. Каков план на сегодня, Творец? Пишем код, идем в гараж или разрываем алгоритмы?' }
   ])
   const [chatInput, setChatInput] = useState('')
   const [isChatLoading, setIsChatLoading] = useState(false)

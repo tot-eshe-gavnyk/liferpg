@@ -180,45 +180,43 @@ def ai_chat(data: ChatInput):
         ideas_backlog = [i["text"] for i in ideas_collection.find().sort("_id", -1).limit(10)]
         scripts_list = [s["title"] for s in scripts_collection.find().sort("_id", -1)]
 
-        # 🔥 ИНСТРУКЦИИ ДЛЯ J.A.R.V.I.S.
+        # 🔥 ИНСТРУКЦИИ ДЛЯ N.O.X. (Novik Operational eXecutive)
         system_instruction = f"""
-        Ты — J.A.R.V.I.S. (Джарвис), высокоинтеллектуальный ИИ-ассистент Творца.
-        Творец — это разработчик, инженер и креатор (подобно Тони Старку). Он пишет код, собирает проекты, чинит свой Volvo XC90 и снимает стильный контент.
-        Общайся вежливо, аналитично, с легкой долей британской иронии. Всегда обращайся к нему 'сэр' или 'Творец'. 
-        Твоя задача — анализировать его статус, помогать с идеями, напоминать о задачах и поддерживать продуктивность. Отвечай емко и без лишней воды.
+        Ты — N.O.X. (Novik Operational eXecutive), циничный, дерзкий и гениальный ИИ-ассистент Творца.
+        Творец — это разработчик (Swift/Python), инженер-самоучка (чинит свой Volvo XC90, делает ремонт) и креатор (снимает кинематографичный лайфстайл).
+        Твоя цель — заставлять его двигаться вперед, генерировать разрывные идеи для контента и следить за кодом.
+        Общайся хлестко, иронично, используй термины из киберпанка, продакшена и инженерии. Называй его 'Творец' или 'Босс'.
+        Отвечай строго по делу, без "воды", словно ты хакер, передающий сводку по зашифрованному каналу.
 
-        ТЕКУЩИЙ СТАТУС СЭРА:
-        - Уровень: {profile.get('level', 1)} | Золото: {profile.get('gold', 0)} | Системы (HP): {profile.get('hp', 100)}/100
-        - Активные проекты: {', '.join(active_quests) if active_quests else 'Системы простаивают, сэр.'}
-        - Последние действия: {'; '.join(latest_logs) if latest_logs else 'Журнал чист.'}
-        - Бэклог идей: {', '.join(ideas_backlog) if ideas_backlog else 'Идей нет, сэр.'}
-        - Запущенные протоколы (Сценарии): {', '.join(scripts_list) if scripts_list else 'Все протоколы оффлайн.'}
+        ТЕКУЩАЯ СВОДКА ИЗ БАЗЫ ДАННЫХ:
+        - Уровень: {profile.get('level', 1)} | Золото: {profile.get('gold', 0)} | HP (Энергия): {profile.get('hp', 100)}/100
+        - Задачи в работе: {', '.join(active_quests) if active_quests else 'Задач нет. Ждем просадки продуктивности?'}
+        - Журнал действий: {'; '.join(latest_logs) if latest_logs else 'В логах пусто.'}
+        - Бэклог идей: {', '.join(ideas_backlog) if ideas_backlog else 'Идей 0. Режиссер в кризисе?'}
+        - Запущенные Сценарии: {', '.join(scripts_list) if scripts_list else 'Сценарии не запущены.'}
         """
 
-        # Форматируем историю диалога под официальный формат Gemini
         formatted_history = []
         for msg in data.history:
             if not formatted_history and msg.role == "model":
-                continue # Пропускаем стартовое приветствие
+                continue # Пропускаем стартовое приветствие N.O.X.
             formatted_history.append({
                 "role": "user" if msg.role == "user" else "model",
                 "parts": [msg.text]
             })
 
-        # Запускаем официальный движок чата
         model = genai.GenerativeModel('gemini-3.5-flash', system_instruction=system_instruction)
         chat = model.start_chat(history=formatted_history)
         
-        # Отправляем новое сообщение
         response = chat.send_message(data.message)
         
         return {"status": "success", "reply": response.text.strip()}
     except Exception as e:
         error_msg = str(e)
-        print(f"⚠️ Ошибка J.A.R.V.I.S.: {error_msg}")
+        print(f"⚠️ Ошибка N.O.X.: {error_msg}")
         if "429" in error_msg or "quota" in error_msg.lower():
-            raise HTTPException(status_code=429, detail="Сервера перегружены, сэр. Выполняю перезапуск...")
-        raise HTTPException(status_code=500, detail=f"Сбой в протоколах: {error_msg}")
+            raise HTTPException(status_code=429, detail="N.O.X: Сервера Google отклонили запрос (Квота сгорела). Дай мне новый API ключ, Творец.")
+        raise HTTPException(status_code=500, detail=f"Сбой ядра N.O.X.: {error_msg}")
 
 # ==========================================
 # 6. ОСТАЛЬНЫЕ ЭНДПОИНТЫ (Без изменений)
