@@ -45,7 +45,7 @@ except Exception as e:
 try:
     if GEMINI_API_KEY:
         genai.configure(api_key=GEMINI_API_KEY)
-        ai_model = genai.GenerativeModel('gemini-1.5-flash')
+        ai_model = genai.GenerativeModel('gemini-2.0-flash')
         print("🧠 Нейросеть Gemini успешно подключена!")
     else:
         print("⚠️ GEMINI_API_KEY не найден в переменных окружения!")
@@ -205,7 +205,7 @@ def ai_chat(data: ChatInput):
                 "parts": [msg.text]
             })
 
-        model = genai.GenerativeModel('gemini-1.5-flash', system_instruction=system_instruction)
+        model = genai.GenerativeModel('gemini-2.0-flash', system_instruction=system_instruction)
         chat = model.start_chat(history=formatted_history)
         
         response = chat.send_message(data.message)
