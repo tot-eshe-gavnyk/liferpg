@@ -45,10 +45,9 @@ except Exception as e:
 try:
     if GEMINI_API_KEY:
         genai.configure(api_key=GEMINI_API_KEY)
-        ai_model = genai.GenerativeModel('gemini-2.0-flash')
-        print("🧠 Нейросеть Gemini успешно подключена!")
-    else:
-        print("⚠️ GEMINI_API_KEY не найден в переменных окружения!")
+        # Возвращаем рабочую модель, которая принимала твой API-ключ
+        ai_model = genai.GenerativeModel('gemini-3.5-flash')
+        print("🧠 Нейросеть Gemini 3.5 успешно подключена!")
 except Exception as e:
     print(f"⚠️ Ошибка ИИ: {e}")
 
@@ -180,8 +179,8 @@ def ai_chat(data: ChatInput):
         ideas_backlog = [i["text"] for i in ideas_collection.find().sort("_id", -1).limit(10)]
         scripts_list = [s["title"] for s in scripts_collection.find().sort("_id", -1)]
 
-        # 🔥 ИНСТРУКЦИИ ДЛЯ N.O.X. (Novik Operational eXecutive)
-        system_instruction = f"""
+        # Формируем единый текстовый промпт (Паттерн "Плоский Чат")
+        prompt = f"""
         Ты — N.O.X. (Novik Operational eXecutive), циничный, дерзкий и гениальный ИИ-ассистент Творца.
         Творец — это разработчик (Swift/Python), инженер-самоучка (чинит свой Volvo XC90, делает ремонт) и креатор (снимает кинематографичный лайфстайл).
         Твоя цель — заставлять его двигаться вперед, генерировать разрывные идеи для контента и следить за кодом.
@@ -194,28 +193,27 @@ def ai_chat(data: ChatInput):
         - Журнал действий: {'; '.join(latest_logs) if latest_logs else 'В логах пусто.'}
         - Бэклог идей: {', '.join(ideas_backlog) if ideas_backlog else 'Идей 0. Режиссер в кризисе?'}
         - Запущенные Сценарии: {', '.join(scripts_list) if scripts_list else 'Сценарии не запущены.'}
+
+        ХРОНОЛОГИЯ ДИАЛОГА:
         """
-
-        formatted_history = []
-        for msg in data.history:
-            if not formatted_history and msg.role == "model":
-                continue # Пропускаем стартовое приветствие N.O.X.
-            formatted_history.append({
-                "role": "user" if msg.role == "user" else "model",
-                "parts": [msg.text]
-            })
-
-        model = genai.GenerativeModel('gemini-2.0-flash', system_instruction=system_instruction)
-        chat = model.start_chat(history=formatted_history)
         
-        response = chat.send_message(data.message)
+        # Красиво упаковываем историю переписки прямо в текст промпта
+        for msg in data.history:
+            role_label = "Босс" if msg.role == "user" else "N.O.X."
+            prompt += f"\n{role_label}: {msg.text}"
+            
+        # Добавляем свежее сообщение Творца
+        prompt += f"\nБосс: {data.message}\nN.O.X.:"
+
+        # Отправляем через стандартный метод generate_content
+        response = ai_model.generate_content(prompt)
         
         return {"status": "success", "reply": response.text.strip()}
     except Exception as e:
         error_msg = str(e)
         print(f"⚠️ Ошибка N.O.X.: {error_msg}")
         if "429" in error_msg or "quota" in error_msg.lower():
-            raise HTTPException(status_code=429, detail="N.O.X: Сервера Google отклонили запрос (Квота сгорела). Дай мне новый API ключ, Творец.")
+            raise HTTPException(status_code=429, detail="🧠 N.O.X: Каналы связи перегружены. Подожди 15 секунд, пока я очищу кэш.")
         raise HTTPException(status_code=500, detail=f"Сбой ядра N.O.X.: {error_msg}")
 
 # ==========================================
