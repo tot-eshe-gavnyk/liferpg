@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pymongo import MongoClient
 from bson.objectid import ObjectId
-import google.generativeai as genai # ИМПОРТ ИИ
+import google.generativeai as genai # Импорт ИИ
 
 # ==========================================
 # 1. ИНИЦИАЛИЗАЦИЯ ЯДРА И CORS
@@ -45,12 +45,13 @@ except Exception as e:
 try:
     if GEMINI_API_KEY:
         genai.configure(api_key=GEMINI_API_KEY)
+        # Устанавливаем актуальную модель поколения 2026 года
         ai_model = genai.GenerativeModel('gemini-3.5-flash')
-        print("🧠 Нейросеть Gemini успешно подключена!")
+        print("🧠 Нейросеть Gemini 3.5 успешно подключена!")
     else:
-        print("⚠️ GEMINI_API_KEY не найден в переменных окружения!")
+        print("⚠️ GEMINI_API_KEY не найден в переменной окружения Render!")
 except Exception as e:
-    print(f"⚠️ Ошибка ИИ: {e}")
+    print(f"⚠️ Ошибка инициализации ИИ: {e}")
 
 # ==========================================
 # 3. PYDANTIC МОДЕЛИ
@@ -127,7 +128,7 @@ def get_or_create_profile():
     return profile
 
 # ==========================================
-# 5. ЭНДПОИНТ ИИ: ГЕНЕРАТОР КВЕСТОВ
+# 5. ЭНДПОИНТ ИИ: ГЕНЕРАТОР КВЕСТОВ (БЕЗУПРЕЧНЫЙ JSON РЕЖИМ)
 # ==========================================
 @app.get("/generate_ai_quest")
 def generate_ai_quest():
@@ -137,7 +138,7 @@ def generate_ai_quest():
         prompt = """
         Ты — ИИ-Оракул для приложения 'Жизнь как RPG'. Придумай ОДИН креативный, интересный и немного безумный квест для реальной жизни парня. Это может быть челлендж для харизмы, инженерная задача, социальный вызов или крутая идея для съемки видео-блога в стиле кино.
         
-        Верни ТОЛЬКО валидный JSON без какой-либо разметки markdown (без ```json), строго в таком формате:
+        Верни ответ строго в соответствии со следующей схемой JSON:
         {
           "title": "Интригующее название квеста",
           "description": "Подробное, дерзкое описание того, что именно нужно сделать в реальной жизни.",
@@ -145,17 +146,40 @@ def generate_ai_quest():
           "gold": случайное число от 20 до 80
         }
         """
-        response = ai_model.generate_content(prompt)
-        # Очищаем ответ от маркдауна, если ИИ всё же его добавил
-        clean_text = response.text.replace("```json", "").replace("```", "").strip()
+        # Включаем принудительный JSON-режим на уровне самого ИИ
+        response = ai_model.generate_content(
+            prompt,
+            generation_config={"response_mime_type": "application/json"}
+        )
+        
+        clean_text = response.text.strip()
+        print(f"📡 Успешный ответ ИИ: {clean_text}")
+        
         quest_data = json.loads(clean_text)
         return {"status": "success", "quest": quest_data}
+        
     except Exception as e:
-        print(f"Ошибка ИИ: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        error_msg = str(e)
+        print(f"⚠️ Ошибка в эндпоинте ИИ: {error_msg}")
+        
+        # Защита от лимитов бесплатных запросов (Rate Limit 429)
+        if "429" in error_msg or "quota" in error_msg.lower() or "resource_exhausted" in error_msg.lower():
+            raise HTTPException(
+                status_code=429, 
+                detail="🧠 ИИ-Оракул перезагружает матрицы. Подожди 15 секунд перед следующим пророчеством!"
+            )
+        
+        # Если всё же случился сбой парсинга
+        if "json" in error_msg.lower() or "expecting" in error_msg.lower():
+            raise HTTPException(
+                status_code=500,
+                detail="🧩 Матрица выдала неверный формат. Просто нажми кнопку генерации еще раз!"
+            )
+            
+        raise HTTPException(status_code=500, detail=error_msg)
 
 # ==========================================
-# 6. ОСТАЛЬНЫЕ ЭНДПОИНТЫ (Стандартные)
+# 6. ОСТАЛЬНЫЕ ЭНДПОИНТЫ ДВИЖКА
 # ==========================================
 @app.post("/sync_new_day")
 def sync_new_day():

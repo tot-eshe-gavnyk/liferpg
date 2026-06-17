@@ -108,14 +108,14 @@ function App() {
 
   useEffect(() => { fetchData() }, [])
 
-  // 🔥 НОВАЯ ФУНКЦИЯ: Генерация квеста через ИИ
+  // ФУНКЦИЯ: Генерация квеста через ИИ с умным выводом ошибок
   const handleGenerateAIQuest = async () => {
     setIsAiLoading(true);
     try {
       const res = await axios.get(`${API_URL}/generate_ai_quest`);
       const aiData = res.data.quest;
       
-      // Автозаполнение полей в форме
+      // Автозаполнение полей формы
       setNewTitle(aiData.title);
       setNewDesc(aiData.description);
       setNewXp(aiData.xp);
@@ -124,7 +124,9 @@ function App() {
       
       playRetroSound('levelup');
     } catch (error) {
-      alert("❌ Ошибка генерации: проверь логи сервера!");
+      // Вытаскиваем точечное сообщение от нашего Python-сервера
+      const errMsg = error.response?.data?.detail || "Ошибка связи с кибер-мозгом.";
+      alert(`❌ ${errMsg}`);
       console.error(error);
     } finally {
       setIsAiLoading(false);
